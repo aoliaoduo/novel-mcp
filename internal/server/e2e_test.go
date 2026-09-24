@@ -117,6 +117,16 @@ func TestEndToEndOverRealProcess(t *testing.T) {
 	if !replay.IsError || !strings.Contains(textOf(replay), "REVISION_CONFLICT") {
 		t.Fatalf("过期 revision 的重放必须回 REVISION_CONFLICT: %s", textOf(replay))
 	}
+	replayRaw, _ := json.Marshal(replay.StructuredContent)
+	var replayEnvelope map[string]any
+	if err := json.Unmarshal(replayRaw, &replayEnvelope); err != nil {
+		t.Fatalf("revision conflict structuredContent: %v", err)
+	}
+	replayError, _ := replayEnvelope["error"].(map[string]any)
+	replayRecovery, _ := replayError["recovery"].(map[string]any)
+	if replayRecovery["tool"] != "next_step" {
+		t.Fatalf("revision conflict 缺结构化恢复提示: %+v", replayEnvelope)
+	}
 
 	// 每个元素写成自成一行的 map：跨行数括号是 bug 之源，这里刻意不省行。
 	// 大纲留三章：只写一章的书在上游会被判为结构完整而直接完结，

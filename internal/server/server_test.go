@@ -192,6 +192,10 @@ func TestRevisionGuardsBlindRetry(t *testing.T) {
 	if code, _ := blank["error"].(map[string]any)["code"].(string); code != "REVISION_CONFLICT" {
 		t.Fatalf("陈旧 revision 必须回 REVISION_CONFLICT，实得 %v", blank["error"])
 	}
+	recovery, _ := blank["error"].(map[string]any)["recovery"].(map[string]any)
+	if recovery["tool"] != "next_step" {
+		t.Fatalf("revision 冲突应直接提示重新路由，实得 %v", blank["error"])
+	}
 	before := revisionOf(t, p, id)
 	first := call(t, p, id, "save_book", before, map[string]any{"title": "书名", "synopsis": "简介"})
 	if first["error"] != nil {
@@ -210,6 +214,21 @@ func TestRevisionGuardsBlindRetry(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(p.dir(id), "drafts", "01.draft.md"))
 	if err == nil && strings.Contains(string(data), "重复正文") {
 		t.Fatalf("被拒的写入落盘了: %s", data)
+	}
+}
+
+func TestEditRecoveryHintOnlyForMatchFailures(t *testing.T) {
+	args := map[string]any{"chapter": 3}
+	hint := recoveryForTool("book", "edit_chapter", args, "PRECONDITION_FAILED", errors.New("apply edit: could not find the exact text in drafts/03.draft.md"))
+	if hint["tool"] != "read_chapter" {
+		t.Fatalf("精确匹配失败应先重读草稿: %#v", hint)
+	}
+	hintArgs, _ := hint["arguments"].(map[string]any)
+	if hintArgs["project"] != "book" || hintArgs["chapter"] != 3 || hintArgs["source"] != "draft" {
+		t.Fatalf("恢复参数不完整: %#v", hint)
+	}
+	if got := recoveryForTool("book", "edit_chapter", args, "PRECONDITION_FAILED", errors.New("章节不在返工队列")); got != nil {
+		t.Fatalf("无确定恢复路径时不应瞎给建议: %#v", got)
 	}
 }
 

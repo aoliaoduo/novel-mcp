@@ -421,7 +421,7 @@ func (p *Projects) Delete(id, expected string) (map[string]any, error) {
 	}
 	if before, err := revision(dir); err == nil {
 		if expected != before {
-			return failure(id, before, "REVISION_CONFLICT", "磁盘状态已变化。先读 project_status 或 novel_context 拿到最新 revision，再决定重放还是改写参数。"), nil
+			return failure(id, before, "REVISION_CONFLICT", "磁盘状态已变化。先读取最新项目状态，再决定是否删除。", recovery("project_status", map[string]any{"project": id})), nil
 		}
 	}
 	if err := os.RemoveAll(dir); err != nil {
@@ -537,7 +537,7 @@ func (p *Projects) Call(ctx context.Context, id, name, expected string, args map
 		return nil, coded("PROJECT_DAMAGED", "project.json 在服务运行期间被外部修改；请重启服务后重新打开项目")
 	}
 	if expected != "" && expected != before {
-		return failure(id, before, "REVISION_CONFLICT", "磁盘状态已变化。先读 project_status 或 novel_context 拿到最新 revision，再决定重放还是改写参数。"), nil
+		return failure(id, before, "REVISION_CONFLICT", "磁盘状态已变化。先重新路由，再决定重放还是改写参数。", recovery("next_step", map[string]any{"project": id})), nil
 	}
 
 	switch name {
@@ -586,16 +586,18 @@ func (p *Projects) Call(ctx context.Context, id, name, expected string, args map
 
 	data, err := tool.Execute(ctx, raw)
 	if err != nil {
+		code := codeOf(err)
+		recover := recoveryForTool(id, name, args, code, err)
 		// 真正的纯读工具失败也不会改变磁盘，直接复用调用前 revision；写工具
 		// 失败可能已落盘（例如 checkpoint 中断），仍必须重新计算最新 revision。
 		if readOnly {
-			return failure(id, before, codeOf(err), p.safeError(err)), nil
+			return failure(id, before, code, p.safeError(err), recover), nil
 		}
 		after, revErr := revision(b.store.Dir())
 		if revErr != nil {
 			return nil, revErr
 		}
-		return failure(id, after, codeOf(err), p.safeError(err)), nil
+		return failure(id, after, code, p.safeError(err), recover), nil
 	}
 	var result any
 	if err := json.Unmarshal(data, &result); err != nil {
@@ -777,8 +779,34 @@ func (p *Projects) errorEnvelope(err error) map[string]any {
 
 // failure 保持与成功路径相同的字段形状：错误也带最新 revision，客户端不必解析
 // 字符串就能决定“重放还是先读”。上游工具的错误文本原样保留，不改写。
-func failure(id, rev, code, message string) map[string]any {
-	return map[string]any{"project": id, "revision": rev, "error": map[string]any{"code": code, "message": message}}
+func recovery(tool string, arguments map[string]any) map[string]any {
+	return map[string]any{"tool": tool, "arguments": arguments}
+}
+
+func recoveryForTool(id, name string, args map[string]any, code string, err error) map[string]any {
+	if code == "REVISION_CONFLICT" {
+		return recovery("next_step", map[string]any{"project": id})
+	}
+	if name != "edit_chapter" || code != "PRECONDITION_FAILED" {
+		return nil
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "could not find the exact text") && !strings.Contains(msg, "occurrences of the text") {
+		return nil
+	}
+	chapter := intArg(args, "chapter", 0)
+	if chapter <= 0 {
+		return nil
+	}
+	return recovery("read_chapter", map[string]any{"project": id, "chapter": chapter, "source": "draft"})
+}
+
+func failure(id, rev, code, message string, recover map[string]any) map[string]any {
+	err := map[string]any{"code": code, "message": message}
+	if recover != nil {
+		err["recovery"] = recover
+	}
+	return map[string]any{"project": id, "revision": rev, "error": err}
 }
 
 // intArg 读整数参数：线上 JSON 数字解出来是 float64，进程内直调传的是 int，
