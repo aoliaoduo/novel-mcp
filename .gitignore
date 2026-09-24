@@ -1,0 +1,33 @@
+# Local toolchains / caches
+.toolchain/
+.local/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build outputs
+dist/
+*.exe
+*.log
+*.tmp
+
+# Runtime data
+data/
+.env*
+credentials.json
+secrets.json
+config.json
+.novel-mcp/
+projects/
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+.pypirc
+.netrc
+*.jks
+*.keystore
+
+# the launcher shortcut carries an absolute path - each machine makes its own
+*.lnk

@@ -1,0 +1,69 @@
+name: safety
+
+on:
+  push:
+  pull_request:
+  public:
+  workflow_dispatch:
+    inputs:
+      full_history_audit:
+        description: "公开前：完整扫描 Git 历史与提交元数据（发现旧隐私/凭据会失败）"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-tree-audit:
+    # 当前仓库仍是 private；未来切换 Public 时由 public 事件立刻启用。
+    # 私有阶段以本地 scripts/public-audit.py 为闸门，避免消耗 hosted runner。
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - name: Scan publishable tree for publication leaks
+        run: python3 scripts/public-audit.py
+
+  publication-history-audit:
+    # 这是“切 Public 之前”人工触发的强门禁。当前私有历史已知仍含需要清理的
+    # 旧隐私痕迹，因此不放进普通 push CI，避免把预期失败变成持续红灯。
+    # public 事件也会触发它，作为误切 Public 后的最后报警线；这不是事前门禁替代品。
+    if: github.event_name == 'public' || (github.event_name == 'workflow_dispatch' && inputs.full_history_audit == true)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan Git history and commit metadata
+        run: python3 scripts/public-audit.py --history
+
+  go-verify:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race
+        run: go test -race ./...

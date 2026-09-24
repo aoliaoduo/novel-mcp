@@ -1,0 +1,60 @@
+name: Bug report
+description: 报告可复现的软件问题；不要提交任何连接凭据或私有小说内容
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告问题。**不要**在公开 issue 中粘贴 MCP URL、route token、Bearer、credentials.json、私有小说正文、本机绝对路径或内部网络主机名。
+        如果问题涉及认证绕过、路径越界、凭据泄露或其他安全漏洞，请不要继续填写此表单，改用仓库 Security 页面中的 Private vulnerability reporting / Security Advisory。
+  - type: input
+    id: version
+    attributes:
+      label: novel-mcp 版本
+      description: 运行 `novel-mcp version`；这里只填版本号。
+      placeholder: v0.4.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 最小复现步骤
+      description: 使用占位符替换 URL、Bearer、项目私有内容和本机路径。
+      placeholder: |
+        1. 启动 novel-mcp ...
+        2. 客户端调用 <tool> ...
+        3. 返回 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 日志必须先脱敏。不要上传 credentials.json 或完整项目数据目录。
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已确认本 issue 不包含 MCP URL、Bearer、credentials.json、私有正文、本机绝对路径或内部主机名。
+          required: true

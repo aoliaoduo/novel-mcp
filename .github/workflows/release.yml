@@ -1,0 +1,90 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read pinned Go version
+        id: go-version
+        shell: bash
+        run: echo "version=$(cat .go-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache: true
+
+      - name: Audit publishable tree
+        run: python3 scripts/public-audit.py
+
+      - name: Verify Go code
+        run: |
+          go test -count=1 ./...
+          go vet ./...
+          go test -race -count=1 ./...
+
+      - name: Verify real-process Go MCP client
+        env:
+          NOVEL_MCP_E2E: "1"
+        run: >-
+          go test -count=1 ./internal/server
+          -run 'TestEndToEnd|TestWireProtocolWithOfficialClient|TestRejectsLegacyMCPProtocol|TestNativeResources|TestNativeResourceCompletions'
+          -v
+
+      - name: Install TypeScript MCP SDK
+        run: >-
+          npm install --prefix .local/mcp-ts-sdk --save-exact
+          @modelcontextprotocol/client@2.0.0
+          @modelcontextprotocol/core@2.0.0
+
+      - name: Verify real-process TypeScript MCP client
+        env:
+          NOVEL_MCP_TS_E2E: "1"
+        run: go test -count=1 ./internal/server -run '^TestTypeScriptSDKCurrentProtocol$' -v
+
+      - name: Build reproducible release artifacts
+        run: python3 scripts/build-release.py --out dist/release --expect-tag "$GITHUB_REF_NAME"
+
+      - name: Verify release artifacts
+        run: python3 scripts/verify-release.py dist/release
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(cat <<'EOF'
+          ## 下载
+
+          - **Windows x64 最省事**：下载 `windows-amd64.exe` 结尾的文件，直接双击。
+          - Windows portable：下载 `windows-amd64.zip`，解压后双击 `novel-mcp.exe`。
+          - Linux / macOS：下载对应架构的 `.tar.gz`，包内先看 `START_HERE.txt`。
+          - `SHA256SUMS.txt` 用于校验下载；`RELEASE-MANIFEST.json` 记录构建 commit、Go 版本、大小和哈希。
+
+          Windows / macOS 当前尚未代码签名；系统若提示未知发布者，请先确认下载来源并核对 SHA-256。
+          EOF
+          )
+          gh release create "$GITHUB_REF_NAME" dist/release/* \
+            --verify-tag \
+            --fail-on-no-commits \
+            --title "$GITHUB_REF_NAME" \
+            --notes "$notes" \
+            --generate-notes
