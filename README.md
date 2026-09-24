@@ -24,6 +24,7 @@ PendingCommit Saga、阶段守卫原样复用，没有第二套业务实现，�
 | 理解系统设计 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 参与开发 | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | 让编码 AI/Agent 修改项目 | [AGENTS.md](AGENTS.md) |
+| 查看版本变化 | [CHANGELOG.md](CHANGELOG.md) |
 | 查看安全模型 | [SECURITY.md](SECURITY.md) |
 | 了解上游来源 | [UPSTREAM.md](UPSTREAM.md) |
 | 发布版本 | [docs/RELEASING.md](docs/RELEASING.md) |
