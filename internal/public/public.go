@@ -111,6 +111,22 @@ func ParseTailStatus(data []byte) (TailStatus, error) {
 	}, nil
 }
 
+// tailnetRecoveryHint 把 Tailscale 状态压成用户可执行的下一步。
+// 不回显 DNSName/IP/本机路径，适合直接出现在错误页或复制给支持人员。
+func tailnetRecoveryHint(st TailStatus) string {
+	switch st.BackendState {
+	case "NeedsLogin":
+		return "Tailscale 尚未登录；打开 Tailscale 客户端完成登录后重试"
+	case "NeedsMachineAuth":
+		return "当前设备等待 tailnet 管理员批准；批准后重试"
+	}
+	health := strings.ToLower(strings.Join(st.Health, " "))
+	if st.BackendState == "NoState" || strings.Contains(health, "starting") || strings.Contains(health, "control") {
+		return "Tailscale 仍在启动或无法连接控制面；若使用 TUN/系统代理，请让 *.tailscale.com、*.tailscale.io、*.ts.net 直连，再重试；仍失败再运行 scripts\\tailscale-repair.cmd"
+	}
+	return "Tailscale 未就绪；先打开桌面客户端确认节点为 Running，仍失败再运行 scripts\\tailscale-repair.cmd"
+}
+
 // FunnelAlreadyOn 判断 funnel status 输出是否已正确挂载到 127.0.0.1:port。
 // 与原 setup.ps1 的 $alreadyOn 同逻辑：本地已有正确挂载就不重跑，避免重启公网 DNS 发布。
 func FunnelAlreadyOn(output string, port int) bool {
@@ -275,11 +291,8 @@ func Preflight(o Options) (*Ready, error) {
 			o.report("tailnet", "Tailscale", "warn", "未就绪："+state)
 			return dryReady(o, mode, tsExe), nil
 		}
-		if st.BackendState == "NeedsLogin" {
-			return nil, fmt.Errorf("Tailscale 还没登录：点一下托盘区的 Tailscale 图标完成登录，再双击启动")
-		}
-		if st.BackendState == "NeedsMachineAuth" {
-			return nil, fmt.Errorf("这台机器还没在 tailnet 管理后台批准：批了之后再双击启动")
+		if st.BackendState == "NeedsLogin" || st.BackendState == "NeedsMachineAuth" {
+			return nil, errors.New(tailnetRecoveryHint(st))
 		}
 		stepLine(w, Gray("…"), "tailnet", fmt.Sprintf("未就绪（%s），拉起托盘进程（免 UAC）…", state))
 		ipn := resolveIPN(tsExe)
@@ -297,7 +310,7 @@ func Preflight(o Options) (*Ready, error) {
 			}
 		}
 		if statusErr != nil || st.BackendState != "Running" {
-			return nil, fmt.Errorf("tailnet 仍未就绪；请双击 scripts\\tailscale-repair.cmd（会请求管理员权限）修一次再来")
+			return nil, errors.New(tailnetRecoveryHint(st))
 		}
 		// daemon 刚起来，之前并行的挂载状态已过期，重查一次。
 		mr.out, mr.code = runCmd(15*time.Second, tsExe, mode, "status")

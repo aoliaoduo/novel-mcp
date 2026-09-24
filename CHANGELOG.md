@@ -5,10 +5,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增 `novel-mcp doctor [--deep] [--json]` 脱敏诊断入口，可检查配置、凭据格式、服务状态和项目完整性，输出不包含 route、Bearer、项目 ID、正文或本机绝对路径。
+- 新增长篇 lifecycle scenario，覆盖多弧、多卷、弧/卷收尾、收官卷、重启恢复、完本后返工和再次完结。
+- GitHub CodeQL 静态安全分析。
+
 ### Fixed
 
 - Windows Go bootstrap 改用 .NET `ZipFile` 解压，避免 Windows PowerShell 5.1 在非交互式
   Agent/CI 宿主中由 `Expand-Archive` / `Write-Progress` 触发异常。
+- 返工/打磨已完成章节时，`next_step` 不再要求一个必然被跳过的 `plan_chapter`，改为直接进入返工正文→回读→检查→提交协议。
+- 完本后的 `next_step` 明确指向 `reopen_book`，不再用含糊的“改设定再重开”提示。
+- 完整 Tailscale smoke 成功后自动删除临时项目；Tailscale 启动/控制面异常时给出更直接的代理/TUN 排查提示。
 
 ## [0.6.0] - 2026-09-24
 

@@ -30,6 +30,27 @@ func TestParseTailStatus(t *testing.T) {
 	}
 }
 
+func TestTailnetRecoveryHint(t *testing.T) {
+	tests := []struct {
+		name string
+		st   TailStatus
+		want string
+	}{
+		{"login", TailStatus{BackendState: "NeedsLogin"}, "登录"},
+		{"machine auth", TailStatus{BackendState: "NeedsMachineAuth"}, "管理员批准"},
+		{"starting", TailStatus{BackendState: "NoState", Health: []string{"Tailscale is starting"}}, "*.tailscale.com"},
+		{"generic", TailStatus{BackendState: "Stopped"}, "Running"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tailnetRecoveryHint(tt.st)
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("hint=%q, want substring %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFunnelAlreadyOn(t *testing.T) {
 	on := "Funnel on\nhttps://node.tail123.ts.net -> http://127.0.0.1:8765 (tailnet only)"
 	if !FunnelAlreadyOn(on, 8765) {

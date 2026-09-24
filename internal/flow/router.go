@@ -87,6 +87,21 @@ func writerActions(chapter int) []RouteAction {
 	}
 }
 
+// rewriteActions 用于已经提交过的章节返工。已完成章节不能重新 plan_chapter，
+// 因此直接从当前事实进入整章改写，避免客户端先执行一个注定 skipped 的调用。
+func rewriteActions(chapter int) []RouteAction {
+	return []RouteAction{
+		requiredAction("novel_context", map[string]any{"chapter": chapter}, nil, "读取返工章当前上下文、终稿与最新事实"),
+		requiredAction("draft_chapter", map[string]any{"chapter": chapter, "mode": "write"}, []string{"content"}, "基于当前终稿写入返工后的完整草稿"),
+		requiredAction("read_chapter", map[string]any{"chapter": chapter, "source": "draft"}, nil, "回读返工后实际落盘草稿"),
+		requiredAction("check_consistency", map[string]any{"chapter": chapter}, nil, "加载规则、伏笔、关系和摘要对照资料"),
+		requiredAction("commit_chapter", map[string]any{"chapter": chapter}, []string{
+			"title", "summary", "characters", "key_events", "timeline_events", "foreshadow_updates",
+			"relationship_changes", "state_changes", "cast_intros", "hook_type", "dominant_strand", "feedback",
+		}, "提交返工后的正文与结构化事实，排空返工队列"),
+	}
+}
+
 func reviewActions(chapter int, scope string) []RouteAction {
 	return []RouteAction{
 		requiredAction("novel_context", map[string]any{"chapter": chapter}, nil, "读取评审所需上下文与已发生事实"),
@@ -245,7 +260,7 @@ func Route(s State) *Instruction {
 			Task:    fmt.Sprintf("%s第 %d 章", verb, ch),
 			Reason:  fmt.Sprintf("PendingRewrites 队列剩余 %d 章", len(p.PendingRewrites)),
 			Chapter: ch,
-			Actions: writerActions(ch),
+			Actions: rewriteActions(ch),
 		}
 	}
 

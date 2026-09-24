@@ -145,7 +145,11 @@ func NextStep(st *store.Store, info ProjectInfo) (map[string]any, error) {
 	if inst := flow.Route(s); inst != nil {
 		task := inst.Task
 		if inst.Agent == "writer" {
-			task += writerProtocol(inst.Chapter)
+			if s.Progress != nil && len(s.Progress.PendingRewrites) > 0 && s.Progress.PendingRewrites[0] == inst.Chapter {
+				task += rewriteProtocol(inst.Chapter)
+			} else {
+				task += writerProtocol(inst.Chapter)
+			}
 		}
 		out := map[string]any{
 			"done": false, "agent": inst.Agent, "task": task, "reason": inst.Reason,
@@ -172,6 +176,20 @@ func writerProtocol(chapter int) string {
 		"正文一改就重新回读和检查，收尾后再调 next_step。"
 }
 
+// rewriteProtocol 与普通写章协议分开。已完成章节的 plan_chapter 会被工具层跳过，
+// 返工时要求它只会制造无效调用。
+func rewriteProtocol(chapter int) string {
+	target := ""
+	if chapter > 0 {
+		target = fmt.Sprintf("(chapter=%d)", chapter)
+	}
+	return "；返工协议（固定顺序）：novel_context" + target +
+		" → draft_chapter(mode=write) 写入返工后的完整草稿" +
+		" → read_chapter(source=draft) 回读 → check_consistency" +
+		" → 按回读正文自行语义修订 → commit_chapter；" +
+		"不要重新 plan_chapter，正文一改就重新回读和检查，收尾后再调 next_step。"
+}
+
 // routeNil 处理 Route 返回 nil 的四种情形：完本、开局未定型、
 // Flow 让位人工、其它（next<=0 等）。一律给出明确的 need + 下一步。
 func routeNil(s flow.State, info ProjectInfo) map[string]any {
@@ -182,9 +200,11 @@ func routeNil(s flow.State, info ProjectInfo) map[string]any {
 	if p.Phase == domain.PhaseComplete {
 		n := len(p.CompletedChapters)
 		return map[string]any{
-			"done":    true,
-			"summary": fmt.Sprintf("全书已完结（共 %d 章），无需进一步操作；想续写/重开先改设定再调 next_step", n),
-			"actions": []map[string]any{},
+			"done":        true,
+			"need":        "complete",
+			"summary":     fmt.Sprintf("全书已完结（共 %d 章），正常写作流程到此结束。若要修改已完成章节，显式调用 reopen_book(chapters, reason)，再按 next_step 的返工路由处理；不要直接覆盖终稿。", n),
+			"reopen_hint": "reopen_book 只用于返工已完成章节；它会把指定章节加入返工队列，返工排空后自动重新完结。",
+			"actions":     []map[string]any{},
 		}
 	}
 	if p.Phase != domain.PhaseWriting {

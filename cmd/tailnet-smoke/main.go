@@ -6,8 +6,8 @@
 //
 //	go run ./cmd/tailnet-smoke -url "https://<node>.<tailnet>.ts.net/mcp/<route>"
 //
-// 它会创建一个名为 smoke-<时间戳> 的项目（服务刻意不提供删除工具），
-// 跑完留在数据目录里，需要的话手动删掉那个目录即可。
+// 它会创建一个名为 smoke-<时间戳> 的临时项目，完整闭环通过后再用
+// delete_project 删除，避免每次公网自检都在用户数据目录留下垃圾项目。
 package main
 
 import (
@@ -78,7 +78,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	want := []string{"list_projects", "create_project", "novel_guide", "project_status", "verify_project", "export_book",
+	want := []string{"list_projects", "create_project", "delete_project", "novel_guide", "project_status", "verify_project", "export_book",
 		"novel_context", "save_book", "save_foundation", "audit_foundation", "plan_chapter",
 		"draft_chapter", "read_chapter", "check_consistency", "commit_chapter"}
 	missing := []string{}
@@ -220,7 +220,12 @@ func run() error {
 	}
 	ok("project_status 阶段 writing，revision 一致")
 
-	fmt.Println("\nPASS  经 Tailscale 的完整闭环可用。项目 ID:", id)
+	if _, err := call(session, "delete_project", map[string]any{"project": id, "expected_revision": rev}); err != nil {
+		return fmt.Errorf("闭环已通过，但清理临时项目失败: %w", err)
+	}
+	ok("delete_project 已清理临时 smoke 项目")
+
+	fmt.Println("\nPASS  经 Tailscale 的完整闭环可用，临时项目已清理。")
 	return nil
 }
 

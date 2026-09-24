@@ -43,6 +43,7 @@ const usage = `novel-mcp — 供网页 MCP 调用的小说创作服务（核心�
   novel-mcp local        [--config <file>] [--port <n>] [--data <dir>] [--no-tui]
   novel-mcp url          [--config <file>] [--public-url <https origin>]
   novel-mcp token rotate --i-understand-this-invalidates-current-clients [--config <file>]
+  novel-mcp doctor       [--config <file>] [--data <dir>] [--deep] [--json]
   novel-mcp version
   novel-mcp help            显示本帮助
   novel-mcp prompt          打印连接 MCP 的初始提示词（配置+URL+Bearer+验证步骤）
@@ -243,6 +244,8 @@ func run(argv []string) error {
 	smoke := fs.Bool("smoke", false, "public：经公网 URL 跑轻量冒烟（只读：404/healthz/握手/工具清单）")
 	dryRun := fs.Bool("dry-run", false, "public：只读侦察，不写配置、不挂载、不起服务")
 	noTUI := fs.Bool("no-tui", false, "public/local：不用 TUI，只打印静态连接卡")
+	doctorDeep := fs.Bool("deep", false, "doctor：逐项目执行只读完整性核验")
+	doctorJSON := fs.Bool("json", false, "doctor：输出可安全分享的 JSON 诊断结果")
 	var origins stringList
 	fs.Var(&origins, "allow-origin", "允许跨源访问的网页源，可重复")
 	if err := fs.Parse(args); err != nil {
@@ -263,8 +266,26 @@ func run(argv []string) error {
 		return &usageError{err: fmt.Errorf("多余的参数: %s", fs.Arg(0))}
 	}
 
-	c, err := loadConfig(*configPath)
+	effectiveConfigPath := *configPath
+	if cmd == "doctor" && effectiveConfigPath == "" {
+		base := defaultDataDir()
+		if *data != "" {
+			base = *data
+		}
+		candidate := filepath.Join(base, "config.json")
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			effectiveConfigPath = candidate
+		}
+	}
+	c, err := loadConfig(effectiveConfigPath)
 	if err != nil {
+		if cmd == "doctor" {
+			fallback := defaults()
+			if *data != "" {
+				fallback.Data = *data
+			}
+			return runDoctor(fallback, effectiveConfigPath != "", *doctorDeep, *doctorJSON, os.Stdout, err)
+		}
 		return err
 	}
 	if *host != "" {
@@ -289,18 +310,30 @@ func run(argv []string) error {
 	if c.RequireBearer == nil {
 		c.RequireBearer = ptr(true)
 	}
-	if err := c.validate(*allowOpen); err != nil {
-		return err
-	}
 	credsFile := filepath.Join(c.Data, "credentials.json")
+	// doctor 的职责之一就是解释坏配置，所以它必须能在配置未通过启动校验时运行。
+	// 其余命令保持原有 fail-closed 行为。
+	if cmd != "doctor" {
+		if err := c.validate(*allowOpen); err != nil {
+			return err
+		}
+	}
 
 	switch cmd {
+	case "doctor":
+		return runDoctor(c, effectiveConfigPath != "", *doctorDeep, *doctorJSON, os.Stdout)
 	case "prompt":
+		if err := c.validate(*allowOpen); err != nil {
+			return err
+		}
 		return printPrompt(c.Data)
 	case "version":
 		fmt.Println("novel-mcp v" + public.Version)
 		return nil
 	case "url":
+		if err := c.validate(*allowOpen); err != nil {
+			return err
+		}
 		if info, loadErr := public.LoadConnection(c.Data); loadErr == nil && info.PublicURL != "" {
 			fmt.Println(info.PublicURL + "/mcp/" + info.Route)
 			if info.BearerOff {
@@ -318,6 +351,9 @@ func run(argv []string) error {
 		}
 		return nil
 	case "token":
+		if err := c.validate(*allowOpen); err != nil {
+			return err
+		}
 		_, err := server.WriteCredentials(credsFile, true)
 		if err != nil {
 			return err
@@ -325,6 +361,9 @@ func run(argv []string) error {
 		fmt.Println("已轮换。旧 URL 立刻失效；重启 serve 后，只把新 URL 交给仍需要访问的客户端。")
 		return nil
 	case "serve":
+		if err := c.validate(*allowOpen); err != nil {
+			return err
+		}
 		srv, ln, addr, creds, err := prepareServe(c, nil)
 		if err != nil {
 			return err

@@ -47,8 +47,8 @@ PendingCommit Saga、阶段守卫原样复用，没有第二套业务实现，�
 `START_HERE.txt`、README 和 LICENSE。当前 Windows/macOS 二进制**尚未代码签名**，系统可能提示未知发布者；
 请只从本仓库 Release 下载，并在需要时先核对 SHA-256。
 
-如果 Releases 页面暂时为空，表示当前公开历史还没有发布正式版本；不要从旧 Private archive
-搬运历史 Release，开发者可按下节从源码构建。
+本公开仓库已经从 `v0.6.0` 开始发布正式 Release；日常下载以 GitHub Releases 页面标记的最新正式版本为准。
+旧 Private archive 的历史 Release 不属于本公开仓库，也不会导入。
 
 Windows 第一次双击后只需要选一次“网页/云端 AI 客户端”或“仅本机 AI 客户端”；服务就绪后按
 **`C`** 复制完整 MCP 配置，粘进 AI 客户端即可。
@@ -86,6 +86,8 @@ dist\novel-mcp.exe local                   # 一键本机模式：127.0.0.1 + Be
 dist\novel-mcp.exe public                  # 一键公网模式：Tailscale Funnel + Bearer + TUI
 dist\novel-mcp.exe url                     # 打印上次启动模式对应的 MCP URL
 dist\novel-mcp.exe prompt                  # 打印完整 MCP 配置片段与初始提示词
+dist\novel-mcp.exe doctor                  # 脱敏自检；输出可安全复制给 AI/Issue
+dist\novel-mcp.exe doctor --deep           # 再逐项目做完整性核验
 ```
 
 首次启动会在数据目录生成随机凭据（`credentials.json`，0600）。TUI 就绪后最省事的用法是
@@ -123,6 +125,7 @@ Bearer **默认遮罩**，按 `V` 才临时显示，避免截图时顺手泄露�
 | `novel-mcp local` | 一键本机：只监听 `127.0.0.1`，不要求 Tailscale，进入同一套实时 TUI |
 | `novel-mcp public` | 一键公网：Tailscale 检查→Funnel/Serve→DNS→MCP 服务；启动过程和错误都在 TUI 内展示 |
 | `novel-mcp url` | 自动读取上次本机/公网模式并打印接入 URL；Bearer 关闭时提醒“URL 即凭据” |
+| `novel-mcp doctor [--deep] [--json]` | 只读脱敏诊断；`--deep` 再逐项目执行完整性核验，不输出 secret、项目 ID、正文或绝对路径 |
 | `novel-mcp token rotate --i-understand-this-invalidates-current-clients` | 轮换路由与 Bearer，旧 URL 立刻失效 |
 | `novel-mcp version` | 版本号 |
 | `novel-mcp prompt` | 打印连接 MCP 的初始提示词（配置+URL+Bearer+验证步骤） |
@@ -235,14 +238,22 @@ list_projects → create_project → novel_guide → save_book
   → novel_context（取 foundation fingerprint）→ audit_foundation（ready=true 才进写作）
 ```
 
-每章：
+正常写新章：
 
 ```
 novel_context(chapter) → plan_chapter → draft_chapter → read_chapter(source=draft)
   → check_consistency → （你自己做语义修订，需要就 edit_chapter）→ commit_chapter
 ```
 
-正文一改就要重新回读与检查；`commit_chapter` 之后才有终稿。
+完本后要修改已有章节，先显式 `reopen_book(chapters, reason)`；之后 `next_step` 会进入返工协议：
+
+```
+novel_context(chapter) → draft_chapter(mode=write) → read_chapter(source=draft)
+  → check_consistency → commit_chapter
+```
+
+已完成章节不会重新 `plan_chapter`。正文一改就要重新回读与检查；`commit_chapter` 之后才有终稿，
+返工队列排空后原已完结的书会自动重新进入 complete。
 
 ### revision：乐观锁，不是版本号
 
@@ -426,7 +437,7 @@ python scripts/check.py --race --history   # 高风险/发布前改动
 需要只跑某一层时再直接使用 Go 测试命令：
 
 ```bash
-go test ./...                    # 单元 + 进程内端到端（11 个上游包 + internal/server）
+go test ./...                    # 单元 + 进程内端到端；包含多卷长篇 lifecycle scenario
 NOVEL_MCP_E2E=1 go test ./internal/server -run TestEndToEnd -v
                                  # 起真二进制、真 HTTP、官方 Go SDK 客户端，
                                  # 走完 开书→设定→审计→写章→校验→提交→导出，
@@ -448,9 +459,9 @@ python scripts/public-audit.py   # 只跑当前可发布树隐私审计
 `cmd/tailnet-smoke/main.go`（`go run ./cmd/tailnet-smoke -url <完整 URL>`）。它可以从 tailnet 外的
 机器发起 MCP 握手，走完开书→审计→写作→提交→导出，不再维护第二套 Python 公网 loop。
 
-这属于环境验证（依赖真实公网/tailnet，不进 `go test`）。
-它会创建名为 `smoke-<时间戳>` 的项目并留在数据目录里；可用 `delete_project` 带最新
-revision 删除，或停服后手动清理 `~/.novel-mcp/projects/smoke-*`。
+这属于环境验证（依赖真实公网/tailnet，不进 `go test`）。工具会创建名为 `smoke-<时间戳>` 的
+临时项目，完整闭环成功后自动用 `delete_project` 清理；若测试中途失败，项目会保留，便于用
+`verify_project` / `project_status` 排查后再删除。
 
 安全模型与威胁边界见 [SECURITY.md](SECURITY.md)；与上游的关系见 [UPSTREAM.md](UPSTREAM.md)。
 公开仓库的 Git 隐私门禁、旧 Private archive 边界与历史审计见
