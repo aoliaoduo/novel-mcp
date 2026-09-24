@@ -18,6 +18,7 @@
 
 ### Fixed
 
+- Windows TUI 剪贴板改为直接调用 Win32 Unicode Clipboard API，不再通过 `powershell.exe` / `Set-Clipboard`，避免 Windows PowerShell 5.1 参数解析导致 `C/U/B/P` 复制失败。
 - Windows Go bootstrap 改用 .NET `ZipFile` 解压，避免 Windows PowerShell 5.1 在非交互式
   Agent/CI 宿主中由 `Expand-Archive` / `Write-Progress` 触发异常。
 - 返工/打磨已完成章节时，`next_step` 不再要求一个必然被跳过的 `plan_chapter`，改为直接进入返工正文→回读→检查→提交协议。
