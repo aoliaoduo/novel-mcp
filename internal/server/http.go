@@ -129,6 +129,15 @@ func allowed(xs []string, v string) bool {
 	return false
 }
 
+func allowedOrigin(xs []string, origin string) bool {
+	for _, x := range xs {
+		if x == "*" || strings.EqualFold(x, origin) {
+			return true
+		}
+	}
+	return false
+}
+
 // NewHTTP 组装唯一的公网面：只认 /healthz 与 /mcp/<route>。控制台、管理 API、
 // shell、任意文件访问在这里不存在，所以也不存在“忘了加鉴权”的旁路。
 func NewHTTP(p *Projects, opts HTTPOptions) http.Handler {
@@ -158,10 +167,10 @@ func NewHTTP(p *Projects, opts HTTPOptions) http.Handler {
 			http.Error(w, "untrusted host", http.StatusForbidden)
 			return
 		}
-		// 空 allow_origins = 只允许同源/非浏览器客户端。浏览器跨源带 Origin，
-		// 未列出一律拒：这比“允许并回显 Origin”安全，也不会让恶意页面读到响应。
+		// 空 allow_origins = 只允许同源/非浏览器客户端；"*" = 接受任意浏览器 Origin。
+		// Host、route 与 Bearer 仍是独立准入边界。
 		origin := r.Header.Get("Origin")
-		if origin != "" && !allowed(opts.Origins, origin) {
+		if origin != "" && !allowedOrigin(opts.Origins, origin) {
 			logHTTP("origin_rejected", http.StatusForbidden)
 			http.Error(w, "untrusted origin", http.StatusForbidden)
 			return

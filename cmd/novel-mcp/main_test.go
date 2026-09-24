@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -49,6 +50,41 @@ func TestStartupModeRoundTrip(t *testing.T) {
 	}
 	if loaded.StartupMode != string(tui.StartupLocal) || loaded.Data != dir {
 		t.Fatalf("saved config mismatch: %+v", loaded)
+	}
+}
+
+func TestSavedConfigStoresRelativeDataPath(t *testing.T) {
+	dir := t.TempDir()
+	c := defaults()
+	c.Data = dir
+	if err := saveStartupConfig(c); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var disk Config
+	if err := json.Unmarshal(raw, &disk); err != nil {
+		t.Fatal(err)
+	}
+	if disk.Data != "." {
+		t.Fatalf("stored data = %q, want .", disk.Data)
+	}
+	loaded, err := loadConfig(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Data != dir {
+		t.Fatalf("resolved data = %q, want %q", loaded.Data, dir)
+	}
+}
+
+func TestConfigAllowsWildcardOrigin(t *testing.T) {
+	c := defaults()
+	c.AllowOrigins = []string{"*"}
+	if err := c.validate(false); err != nil {
+		t.Fatalf("wildcard origin should validate: %v", err)
 	}
 }
 

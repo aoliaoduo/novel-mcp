@@ -33,7 +33,9 @@ The server does **not** call a model, store model API keys, run a background wri
 
 For web/cloud clients, the default public mode uses Tailscale Funnel and Bearer auth. Local mode listens only on `127.0.0.1`.
 
-Official release archives are portable. Keep the extracted folder together: when `portable.flag` is present, configuration, credentials, logs, and novel projects are stored under the sibling `data/` directory, so moving or backing up the whole folder moves the workspace with it. A standalone binary without `portable.flag` falls back to `~/.novel-mcp`.
+Official release archives are portable. Keep the extracted folder together: when `portable.flag` is present, configuration, credentials, logs, and novel projects are stored under the sibling `data/` directory, so moving or backing up the whole folder moves the workspace with it. Generated `config.json` files store the data path as `"data": "."` instead of pinning an absolute install path. A standalone binary without `portable.flag` falls back to `~/.novel-mcp`.
+
+Local/public mode defaults to `allow_origins: ["*"]`, so web MCP hosts do not need to be allowlisted one domain at a time. Public access still requires the secret route and Bearer.
 
 If setup fails, run:
 
@@ -83,7 +85,7 @@ See [Workflow guide](docs/WORKFLOW.md) for action-plan semantics, revisions, rec
 
 ## Security model
 
-A public endpoint is protected by both a random route capability and, by default, an independent Bearer token. The service also enforces Host/Origin gates and keeps its HTTP surface intentionally small.
+A public endpoint is protected by both a random route capability and, by default, an independent Bearer token. The service keeps an exact Host gate, allows any browser Origin by default, and keeps its HTTP surface intentionally small.
 
 Project access is by restricted project ID only. Remote callers cannot submit arbitrary filesystem paths. There is no shell/exec tool and no model credential API.
 

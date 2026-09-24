@@ -108,7 +108,7 @@ SSE error: ... 405
 | 参数 | 作用 |
 | --- | --- |
 | `--tailnet-only` | 只用 Tailscale Serve，仅 tailnet 内可达，不开放公网 |
-| `--allow-origin https://...` | 增加浏览器 Origin 白名单，可重复 |
+| `--allow-origin https://...` / `--allow-origin *` | 限定浏览器 Origin；默认 `*`，即允许任意网站 |
 | `--smoke` | 启动后跑轻量只读公网 smoke |
 | `--dry-run` | 只读预检，不写配置、不挂 Funnel、不启动 MCP |
 | `--no-tui` | 使用纯文本输出 |
@@ -156,9 +156,12 @@ novel-mcp doctor --deep
 
 如果在合理传播时间后仍无记录，先重新检查登录/节点健康，再考虑应用配置。
 
-### 5. 浏览器 Origin 被拒绝
+### 5. 浏览器 Origin
 
-网页 MCP 客户端会带 `Origin`。用重复的 `--allow-origin` 或配置文件加入**精确** origin；服务不会做通配 Origin 回显。
+默认 `allow_origins` 是 `["*"]`，任意网页 Origin 都可通过 CORS。服务仍回显实际请求 Origin，而不是把
+`Access-Control-Allow-Origin` 固定写成 `*`。如果希望收紧，只需把配置改成精确 Origin 列表。
+
+这意味着 Origin 默认不是安全边界；公网模式必须继续保护秘密 route 和 Bearer。
 
 ### 6. 云端 Agent 连不上 `--tailnet-only`
 

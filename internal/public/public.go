@@ -28,13 +28,8 @@ import (
 // 版本号唯一源头在 server 包：public 依赖 server，mcp 握手也必须用同一值。
 const Version = server.Version
 
-// DefaultAllowOrigins 与原 setup.ps1 的 -AllowOrigins 默认值一致。
-var DefaultAllowOrigins = []string{
-	"https://arena.ai",
-	"https://www.arena.ai",
-	"https://lmarena.ai",
-	"https://www.lmarena.ai",
-}
+// DefaultAllowOrigins 允许任意网页 Origin；真正的访问控制仍由 Host、route 与 Bearer 负责。
+var DefaultAllowOrigins = []string{"*"}
 
 const (
 	defaultTailscaleExe = `C:\Program Files\Tailscale\tailscale.exe`
@@ -340,7 +335,7 @@ func Preflight(o Options) (*Ready, error) {
 		cfg := map[string]any{
 			"host":           "127.0.0.1",
 			"port":           o.Port,
-			"data":           o.DataDir,
+			"data":           ".",
 			"public_url":     publicURL,
 			"allow_origins":  o.AllowOrigins,
 			"require_bearer": o.RequireBearer,

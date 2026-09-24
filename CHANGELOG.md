@@ -7,6 +7,8 @@
 
 ### Added
 
+- local/public 默认允许任意浏览器 Origin（`allow_origins: ["*"]`），避免为网页 MCP Host 逐个维护域名；Host、秘密 route 与 Bearer 仍保持独立准入控制。
+- 自动生成的 `config.json` 将数据目录写成相对路径 `"data": "."`，加载时相对配置文件解析，避免便携目录移动后残留安装机绝对路径。
 - 正式 Release 压缩包与 Windows 开发构建加入 `portable.flag`：解压后的程序默认把配置、凭据、日志和小说项目放在同目录 `data/`，整个文件夹可直接移动或备份；单独二进制仍回退到 `~/.novel-mcp`。
 - 新增 `novel-mcp doctor [--deep] [--json]` 脱敏诊断入口，可检查配置、凭据格式、服务状态和项目完整性，输出不包含 route、Bearer、项目 ID、正文或本机绝对路径。
 - 新增 `<data>/logs/novel-mcp.log` 持久脱敏调用日志，记录 HTTP/MCP 调用元数据、参数形状、错误码、恢复提示和耗时，不记录 route、Bearer、Authorization、正文或完整请求体。

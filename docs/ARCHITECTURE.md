@@ -84,7 +84,7 @@ Surface 包含：
 - `GET /healthz`；
 - 精确 `/mcp/<route>`；
 - Host 白名单；
-- Origin 白名单；
+- Origin 策略（支持精确列表或 `*`；local/public 默认任意 Origin）；
 - route + Bearer 常量时间比较；
 - MCP POST/OPTIONS；
 - 4 MiB request body；

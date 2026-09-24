@@ -108,7 +108,7 @@ usually means the client is probing the endpoint as the old HTTP+SSE transport i
 | Flag | Meaning |
 | --- | --- |
 | `--tailnet-only` | Use Tailscale Serve only; reachable inside the tailnet, not from the public internet |
-| `--allow-origin https://...` | Add an allowed browser Origin; repeatable |
+| `--allow-origin https://...` / `--allow-origin *` | Restrict browser Origins; default `*` allows any website |
 | `--smoke` | Run a lightweight read-only public smoke check after startup |
 | `--dry-run` | Read-only preflight; do not write config, mount Funnel, or start the MCP service |
 | `--no-tui` | Use plain text output |
@@ -156,9 +156,11 @@ Avoid repeatedly toggling Funnel off/on: that restarts publication and can exten
 
 If publication remains absent after a reasonable propagation window, re-check login/node health before changing application configuration.
 
-### 5. Browser Origin is rejected
+### 5. Browser Origin
 
-Browser-based clients send an `Origin` header. Add the exact origin with repeated `--allow-origin` flags or configuration entries. The service does not use wildcard reflection.
+The default `allow_origins` is `["*"]`, so any browser Origin can pass CORS. The server still reflects the actual request Origin rather than emitting a literal wildcard response. To restrict access, replace `*` with exact Origins.
+
+This means Origin is not a security boundary by default; keep the secret route and Bearer private in public mode.
 
 ### 6. Cloud agent cannot reach `--tailnet-only`
 

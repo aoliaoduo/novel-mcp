@@ -17,7 +17,7 @@ import (
 func runLocalCommand(c Config, noTUI bool) error {
 	c.Host = "127.0.0.1"
 	c.PublicURL = ""
-	c.AllowOrigins = nil
+	c.AllowOrigins = public.DefaultAllowOrigins
 	c.RequireBearer = ptr(true)
 	c.StartupMode = string(tui.StartupLocal)
 	if public.ProbeRunning(c.Port) {

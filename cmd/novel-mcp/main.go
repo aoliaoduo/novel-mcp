@@ -90,8 +90,11 @@ func (c Config) validate(allowOpen bool) error {
 		}
 	}
 	for _, o := range c.AllowOrigins {
+		if o == "*" {
+			continue
+		}
 		if !strings.HasPrefix(o, "http://") && !strings.HasPrefix(o, "https://") {
-			return fmt.Errorf("allow_origin 必须是带协议的源: %s", o)
+			return fmt.Errorf("allow_origin 必须是带协议的源或 *: %s", o)
 		}
 	}
 	bearer := c.RequireBearer == nil || *c.RequireBearer
@@ -122,6 +125,9 @@ func loadConfig(path string) (Config, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&c); err != nil {
 		return c, fmt.Errorf("config %s: %w", path, err)
+	}
+	if c.Data != "" && !filepath.IsAbs(c.Data) {
+		c.Data = filepath.Clean(filepath.Join(filepath.Dir(path), c.Data))
 	}
 	// Portable bundle 可以整体移动。config.json 里可能还留着移动前的绝对 data 路径；
 	// 只要加载的是当前 bundle 自己的 config，就以 exe 旁的 data/ 为准。
@@ -154,7 +160,9 @@ func saveStartupConfig(c Config) error {
 	if err := os.MkdirAll(c.Data, 0o700); err != nil {
 		return err
 	}
-	buf, err := json.MarshalIndent(c, "", "  ")
+	onDisk := c
+	onDisk.Data = "."
+	buf, err := json.MarshalIndent(onDisk, "", "  ")
 	if err != nil {
 		return err
 	}

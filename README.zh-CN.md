@@ -33,7 +33,9 @@ AI / MCP Host  ── Streamable HTTP MCP ──▶  novel-mcp  ──▶  项�
 
 网页/云端模式默认使用 Tailscale Funnel + Bearer；本机模式只监听 `127.0.0.1`。
 
-官方 Release 是便携包：请把解压后的目录整体保留。`portable.flag` 存在时，配置、凭据、日志和小说项目都会写到 `novel-mcp` 程序旁的 `data/`；整个文件夹可以直接移动或备份。单独复制一个没有 `portable.flag` 的二进制时，才回退到用户目录下的 `~/.novel-mcp`。
+官方 Release 是便携包：请把解压后的目录整体保留。`portable.flag` 存在时，配置、凭据、日志和小说项目都会写到 `novel-mcp` 程序旁的 `data/`；整个文件夹可以直接移动或备份。自动生成的 `config.json` 使用相对数据路径 `"data": "."`，不会把安装位置写死。单独复制一个没有 `portable.flag` 的二进制时，才回退到用户目录下的 `~/.novel-mcp`。
+
+local/public 默认 `allow_origins: ["*"]`，因此不需要为 ChatGPT、Arena 或其他网页 MCP Host 逐个维护域名；公网访问仍必须持有秘密 route 与 Bearer。
 
 启动或连接异常时先运行：
 
@@ -83,7 +85,7 @@ novel_context → plan_chapter → draft_chapter → read_chapter
 
 ## 安全模型
 
-公网端点由随机 route capability 与默认开启的独立 Bearer 双重保护；服务同时有 Host/Origin 门禁，并刻意保持很小的 HTTP 暴露面。
+公网端点由随机 route capability 与默认开启的独立 Bearer 双重保护；服务保持精确 Host 门禁，Origin 默认允许任意网页，并刻意保持很小的 HTTP 暴露面。
 
 项目只能通过受限 project ID 访问，远端不能提交任意宿主路径；没有 shell/exec，也没有模型凭据接口。
 

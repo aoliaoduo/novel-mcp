@@ -378,6 +378,29 @@ func TestPublicURLAcceptsOnlyOrigins(t *testing.T) {
 	}
 }
 
+func TestHTTPWildcardOriginAllowsAnyBrowserOrigin(t *testing.T) {
+	p := newProjects(t)
+	route := strings.Repeat("a", 64)
+	bearer := strings.Repeat("b", 64)
+	handler := NewHTTP(p, HTTPOptions{
+		Credentials:   func() (Credentials, error) { return Credentials{Route: route, Bearer: bearer}, nil },
+		Hosts:         []string{"novel.test"},
+		Origins:       []string{"*"},
+		RequireBearer: true,
+	})
+	req := httptest.NewRequest(http.MethodOptions, "http://novel.test/mcp/"+route, nil)
+	req.Host = "novel.test"
+	req.Header.Set("Origin", "https://any.example")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("wildcard origin status = %d, want 204", rr.Code)
+	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://any.example" {
+		t.Fatalf("Access-Control-Allow-Origin = %q", got)
+	}
+}
+
 // 门禁逐条测：每一项都是"没配好就别接公网"的那道闸。
 func TestHTTPGateRejectsEverythingButTheRoute(t *testing.T) {
 	p := newProjects(t)
