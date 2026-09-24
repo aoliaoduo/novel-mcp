@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,6 +16,11 @@ func TestObserverHTTPWiring(t *testing.T) {
 	route := strings.Repeat("a", 64)
 	bearer := strings.Repeat("b", 64)
 	obs := NewObserver()
+	callLog, err := NewCallLog(filepath.Join(t.TempDir(), "logs", "novel-mcp.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs.CallLog = callLog
 	handler := NewHTTP(p, HTTPOptions{
 		Credentials:   func() (Credentials, error) { return Credentials{Route: route, Bearer: bearer}, nil },
 		Hosts:         []string{"novel.test"},
@@ -63,5 +70,16 @@ func TestObserverHTTPWiring(t *testing.T) {
 	}
 	if evs[1].Tool != "list_projects" || !evs[1].OK || evs[1].Project != "" {
 		t.Fatalf("ok event wrong: %+v", evs[1])
+	}
+	raw, err := os.ReadFile(callLog.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logged := string(raw)
+	if !strings.Contains(logged, `"event":"mcp_post"`) || !strings.Contains(logged, `"tool":"list_projects"`) || !strings.Contains(logged, `"tool":"project_status"`) {
+		t.Fatalf("持久调用日志接线不完整: %s", logged)
+	}
+	if strings.Contains(logged, route) || strings.Contains(logged, bearer) {
+		t.Fatal("持久调用日志不得写入 route/Bearer")
 	}
 }

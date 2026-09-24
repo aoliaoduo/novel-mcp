@@ -42,6 +42,8 @@ novel-mcp doctor --deep
 
 `doctor` is read-only and intentionally redacts route tokens, Bearer tokens, public hostnames, project IDs, novel text, and local absolute paths so its output can be shared in an issue or with an AI assistant.
 
+While the service is running it also appends a redacted JSONL call log at `<data>/logs/novel-mcp.log`, which is useful for reconstructing the web AI's actual tool sequence, error codes, and latency. The log does not store prose, route tokens, Bearer tokens, or full request bodies.
+
 ## Common commands
 
 | Command | Purpose |

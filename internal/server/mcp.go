@@ -197,17 +197,33 @@ func NewMCP(p *Projects, obs *Observer) *mcp.Server {
 			func(ctx context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 				start := time.Now()
 				if err := bounded(args, 0); err != nil {
-					obs.Record(name, idOf(args), false, time.Since(start), shortErr(err.Error()))
+					latency := time.Since(start)
+					msg := shortErr(p.safeError(err))
+					obs.Record(name, idOf(args), false, latency, msg)
+					if obs != nil && obs.CallLog != nil {
+						obs.CallLog.Tool(name, idOf(args), args, nil, false, codeOf(err), msg, latency)
+					}
 					return payload(nil, err, p)
 				}
 				result, err := call(ctx, args)
-				ok, msg := true, ""
+				ok, code, msg := true, "", ""
 				if err != nil {
-					ok, msg = false, shortErr(err.Error())
+					ok, code, msg = false, codeOf(err), shortErr(p.safeError(err))
 				} else if ee, bad := result["error"]; bad {
-					ok, msg = false, shortErr(fmt.Sprintf("%v", ee))
+					ok = false
+					if em, _ := ee.(map[string]any); em != nil {
+						code, _ = em["code"].(string)
+						msg, _ = em["message"].(string)
+						msg = shortErr(msg)
+					} else {
+						msg = shortErr(fmt.Sprintf("%v", ee))
+					}
 				}
-				obs.Record(name, idOf(args), ok, time.Since(start), msg)
+				latency := time.Since(start)
+				obs.Record(name, idOf(args), ok, latency, msg)
+				if obs != nil && obs.CallLog != nil {
+					obs.CallLog.Tool(name, idOf(args), args, result, ok, code, msg, latency)
+				}
 				return payload(result, err, p)
 			})
 	}

@@ -65,6 +65,7 @@ Resource Metadata，以及对该授权服务器签发 token 的 issuer/audience/
 * **传输安全由外层负责**：服务本身只说 HTTP。经隧道/反代时必须由那一层提供 TLS，
   并用 `--public-url` 把预期来源固定下来。
 * **数据目录不加密**：内容以明文存放，备份、权限与磁盘加密由使用者负责。
+* **诊断日志也是本机运行数据**：`<data>/logs/novel-mcp.log` 以 0600 创建，只记录调用元数据、项目 ID、参数形状、错误码和耗时，不记录 route、Bearer、Authorization、正文或完整请求体。它仍可能暴露项目 ID 与使用时间线，不应提交到公开仓库或 Issue。
 * **经 Tailscale 暴露时**：服务仍在回环，只有 tailnet 内设备能到达，TLS 由 `tailscale serve`
   用 ts.net 证书终结。此时"URL 即凭据"的强度由**你的 tailnet 成员身份**兜底：任何能进你
   tailnet 且拿到这条 URL 的设备都能读写你的书。改用 Funnel 对公网开放时必须开启 Bearer，

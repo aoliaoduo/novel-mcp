@@ -563,6 +563,12 @@ func prepareServe(c Config, obs *server.Observer) (srv *http.Server, ln net.List
 	if err = os.MkdirAll(c.Data, 0o700); err != nil {
 		return nil, nil, "", server.Credentials{}, err
 	}
+	if obs == nil {
+		obs = server.NewObserver()
+	}
+	if obs.CallLog, err = server.NewCallLog(server.CallLogPath(c.Data)); err != nil {
+		return nil, nil, "", server.Credentials{}, fmt.Errorf("初始化调用日志失败: %w", err)
+	}
 	if creds, err = server.WriteCredentials(credsFile, false); err != nil {
 		return nil, nil, "", server.Credentials{}, err
 	}

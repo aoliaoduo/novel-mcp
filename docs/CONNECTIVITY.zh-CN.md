@@ -77,6 +77,20 @@ novel-mcp public --dry-run
 
 `doctor` 只做本机诊断，不主动访问公网 hostname。Tailscale / 公网链问题更适合 `public --dry-run`，因为它会执行只读公网预检。
 
+## 持久调用日志
+
+服务启动后会把脱敏调用日志持续追加到数据目录下：
+
+```text
+<data>/logs/novel-mcp.log
+```
+
+文件是一行一个 JSON 事件，记录 HTTP 门禁结果、MCP tool 名、项目 ID、chapter/volume/arc 等路由字段、参数键与字符串长度/数组数量、结果状态、错误码、恢复提示和耗时。它**不记录** route、Bearer、Authorization、完整 HTTP 请求体、小说正文或自由文本参数值。
+
+这份日志适合在实际用网页 AI 写一段时间后回看调用序列和失败点。它仍属于本机运行数据，可能含项目 ID，不要提交到 Git 或直接贴到公开 Issue。
+
+排查时可以按层判断：没有对应 HTTP 事件，说明请求没到服务；有 `mcp_post` 但没有对应 tool 事件，通常是 MCP/Schema 层在工具执行前拒绝；出现 tool 事件后再看 `ok`、`error.code`、`result.recovery_tool` 与耗时，就能定位到服务端业务阶段。
+
 ## MCP 客户端传输兼容性
 
 `novel-mcp` 使用 MCP `2026-07-28` + Streamable HTTP，不提供已经弃用的 HTTP+SSE 传输。

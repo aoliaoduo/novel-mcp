@@ -77,6 +77,20 @@ novel-mcp public --dry-run
 
 `doctor` stays local and does not probe the public hostname. `public --dry-run` is the better tool for Tailscale/public-network diagnosis because it performs the read-only public preflight.
 
+## Persistent call log
+
+Once the service starts, it appends a redacted diagnostic log under the data directory:
+
+```text
+<data>/logs/novel-mcp.log
+```
+
+The file is JSON Lines. It records HTTP gate outcomes, MCP tool names, project IDs, routing fields such as chapter/volume/arc, argument keys plus string lengths/array counts, result status, error codes, recovery hints, and latency. It does **not** record the route token, Bearer token, Authorization header, full HTTP request body, novel prose, or free-text argument values.
+
+This is intended for reviewing the real call sequence after using a web AI client. It is still local runtime data and may contain project IDs, so do not commit it or paste it into a public issue without review.
+
+For triage, the layers are useful: no matching HTTP event means the request did not reach the service; an `mcp_post` without a corresponding tool event usually means MCP/schema handling rejected it before tool execution; once a tool event exists, inspect `ok`, `error.code`, `result.recovery_tool`, and latency to locate the server-side stage.
+
 ## MCP client transport compatibility
 
 `novel-mcp` speaks MCP protocol `2026-07-28` over Streamable HTTP. It does not expose the deprecated HTTP+SSE transport.

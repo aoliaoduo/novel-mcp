@@ -42,6 +42,8 @@ novel-mcp doctor --deep
 
 `doctor` 只读且主动脱敏，不输出 route、Bearer、公网 hostname、项目 ID、小说正文或本机绝对路径，结果可以较安全地贴给 AI 或 Issue 排查。
 
+实际运行时还会在 `<data>/logs/novel-mcp.log` 追加脱敏 JSONL 调用日志，便于事后定位网页 AI 的真实调用顺序、错误码和耗时；日志不保存正文、route、Bearer 或完整请求体。
+
 ## 常用命令
 
 | 命令 | 作用 |

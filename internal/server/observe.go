@@ -82,8 +82,9 @@ func (l *EventLog) Recent(limit int) []Event {
 // Observer 把计数器与事件环绑在一起，是 NewMCP 的唯一埋点出口。
 // 零值可用（Log 为 nil 时只计数不记事件），Record 对 nil 接收者也是安全的。
 type Observer struct {
-	Stats Stats
-	Log   *EventLog
+	Stats   Stats
+	Log     *EventLog
+	CallLog *CallLog
 }
 
 func NewObserver() *Observer { return &Observer{Log: NewEventLog(DefaultEventLogCap)} }

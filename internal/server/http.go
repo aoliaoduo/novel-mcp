@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -144,10 +145,17 @@ func NewHTTP(p *Projects, opts HTTPOptions) http.Handler {
 		})
 	slots := make(chan struct{}, 16)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		logHTTP := func(event string, status int) {
+			if opts.Observer != nil && opts.Observer.CallLog != nil {
+				opts.Observer.CallLog.HTTP(event, r.Method, status, r.ContentLength, r.Header.Get("Origin") != "", r.Header.Get("MCP-Protocol-Version"), time.Since(started))
+			}
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if !allowed(opts.Hosts, r.Host) {
+			logHTTP("host_rejected", http.StatusForbidden)
 			http.Error(w, "untrusted host", http.StatusForbidden)
 			return
 		}
@@ -155,22 +163,26 @@ func NewHTTP(p *Projects, opts HTTPOptions) http.Handler {
 		// 未列出一律拒：这比“允许并回显 Origin”安全，也不会让恶意页面读到响应。
 		origin := r.Header.Get("Origin")
 		if origin != "" && !allowed(opts.Origins, origin) {
+			logHTTP("origin_rejected", http.StatusForbidden)
 			http.Error(w, "untrusted origin", http.StatusForbidden)
 			return
 		}
 		if r.Method == http.MethodGet && r.URL.Path == "/healthz" {
+			logHTTP("health", http.StatusOK)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"ok":true,"service":"novel-mcp","auth":"` + authMode(opts.RequireBearer) + `"}`))
 			return
 		}
 		creds, err := opts.Credentials()
 		if err != nil {
+			logHTTP("credentials_unavailable", http.StatusServiceUnavailable)
 			http.Error(w, "credentials unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		// 先判路径再判 bearer：错 token 与不存在的路线都回 404，不给出可比对的信号。
 		// 不重定向、不回显路径，也不把 /mcp 单独开放。
 		if r.URL.RawQuery != "" || r.URL.Fragment != "" || !equalSecret(r.URL.Path, "/mcp/"+creds.Route) {
+			logHTTP("route_not_found", http.StatusNotFound)
 			http.NotFound(w, r)
 			return
 		}
@@ -181,18 +193,21 @@ func NewHTTP(p *Projects, opts HTTPOptions) http.Handler {
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID")
 		}
 		if r.Method == http.MethodOptions {
+			logHTTP("preflight", http.StatusNoContent)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		if opts.RequireBearer {
 			scheme, token, _ := strings.Cut(r.Header.Get("Authorization"), " ")
 			if !strings.EqualFold(scheme, "Bearer") || !equalSecret(strings.TrimSpace(token), creds.Bearer) {
+				logHTTP("auth_failed", http.StatusUnauthorized)
 				w.Header().Set("WWW-Authenticate", `Bearer realm="novel-mcp"`)
 				http.Error(w, "authentication required", http.StatusUnauthorized)
 				return
 			}
 		}
 		if r.Method != http.MethodPost {
+			logHTTP("method_rejected", http.StatusMethodNotAllowed)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -200,9 +215,11 @@ func NewHTTP(p *Projects, opts HTTPOptions) http.Handler {
 		case slots <- struct{}{}:
 			defer func() { <-slots }()
 		default:
+			logHTTP("busy", http.StatusTooManyRequests)
 			http.Error(w, "server busy; retry later", http.StatusTooManyRequests)
 			return
 		}
+		logHTTP("mcp_post", 0)
 		transport.ServeHTTP(w, r)
 	})
 }
