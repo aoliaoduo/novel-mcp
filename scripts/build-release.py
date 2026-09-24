@@ -144,7 +144,7 @@ you trust the GitHub Release and have verified SHA256SUMS.txt.
 
 For clipboard shortcuts install a supported clipboard helper (wl-copy or xclip) if needed.
 """
-    return common + launch + "\nSee README.md for protocol, security, and advanced CLI details.\n"
+    return common + launch + "\nSee README.md (English) or README.zh-CN.md (简体中文) for more details.\n"
 
 
 def zip_epoch(epoch: int) -> tuple[int, int, int, int, int, int]:
@@ -226,6 +226,7 @@ def package_files(binary: Path, goos: str, version: str) -> list[tuple[str, byte
         (binary_name, binary.read_bytes(), 0o755),
         ("START_HERE.txt", start_here(goos, version).encode("utf-8"), 0o644),
         ("README.md", (ROOT / "README.md").read_bytes(), 0o644),
+        ("README.zh-CN.md", (ROOT / "README.zh-CN.md").read_bytes(), 0o644),
         ("LICENSE", (ROOT / "LICENSE").read_bytes(), 0o644),
     ]
 

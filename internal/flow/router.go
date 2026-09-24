@@ -111,7 +111,9 @@ func reviewActions(chapter int, scope string) []RouteAction {
 	}
 }
 
-func planningRepairActions(missing []string, tier domain.PlanningTier) []RouteAction {
+// PlanningRepairActions 把已知规划级别下的 foundation 缺项映射为确定的工具动作。
+// server 的首次规划路由复用它，避免机器计划与 Route 的修复语义漂移。
+func PlanningRepairActions(missing []string, tier domain.PlanningTier) []RouteAction {
 	actions := make([]RouteAction, 0, len(missing)+2)
 	for _, item := range missing {
 		switch item {
@@ -242,7 +244,7 @@ func Route(s State) *Instruction {
 				Agent:   plannerForTier(s.PlanningTier),
 				Task:    task,
 				Reason:  "基础设定缺项未齐，照缺项续派同一规划师",
-				Actions: planningRepairActions(s.FoundationMissing, s.PlanningTier),
+				Actions: PlanningRepairActions(s.FoundationMissing, s.PlanningTier),
 			}
 		}
 		return nil

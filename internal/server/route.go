@@ -246,20 +246,59 @@ func planStart(s flow.State, info ProjectInfo, reason string) map[string]any {
 		guideArgs["role"] = guideRole
 		guideRequired = []string{}
 	}
+
+	// 首次规划时 tier 仍为空。此时不能在同一个机器计划里提前猜 short/long
+	// 后续大纲究竟是 outline 还是 layered_outline。先只完成“选型 + 落一个带
+	// scale 的种子设定”，再 next_step；下一轮拿到已落盘 tier 后，Router 会把
+	// 每个剩余缺项展开成一个确定的 action。
+	if tier == "" {
+		actions := []map[string]any{
+			action("novel_guide", guideArgs, guideRequired, "根据 brief 选择短篇或长篇规划协议"),
+		}
+		if containsString(foundationMissing, "book") {
+			actions = append(actions, action("save_book", map[string]any{}, []string{"title", "synopsis"}, "落盘正式书名与读者简介"))
+		}
+		if containsString(foundationMissing, "premise") {
+			actions = append(actions, action("save_foundation", map[string]any{"type": "premise"},
+				[]string{"content", "scale：short / mid / long"}, "保存故事前提并确定规划级别；完成后重新调用 next_step"))
+		} else {
+			actions = append(actions, action("save_foundation", map[string]any{},
+				[]string{"type", "content", "scale：short / mid / long"}, "给一个尚缺的基础设定写入 scale，确定规划级别；完成后重新调用 next_step"))
+		}
+		return map[string]any{
+			"done": false, "need": "plan_start", "agent": "architect",
+			"brief": info.Brief, "style": info.Style,
+			"foundation_missing": foundationMissing, "planning_tier": tier,
+			"task":    "首次规划只做两件事：先根据 brief 选择 novel_guide(role=architect 或 architect_long)；再调用 save_book（若缺）落书名，并用 save_foundation(type=premise, scale=short|mid|long) 保存种子设定。完成后立刻重新调用 next_step，让服务器根据已落盘 short/mid/long 生成准确的后续设定 actions；不要在当前 plan 里自行猜 outline / layered_outline。项目 brief：" + info.Brief,
+			"reason":  reason,
+			"actions": actions,
+		}
+	}
+
 	actions := []map[string]any{
 		action("novel_guide", guideArgs, guideRequired, "读取与篇幅匹配的规划协议"),
-		action("save_book", map[string]any{}, []string{"title", "synopsis"}, "落盘正式书名与读者简介"),
-		action("save_foundation", map[string]any{}, []string{"type", "content；首次 premise 同时确定 scale"}, "按 foundation_missing 逐项保存基础设定"),
-		action("novel_context", map[string]any{}, nil, "读取全部已落盘基础设定及 foundation fingerprint"),
-		action("audit_foundation", map[string]any{}, []string{"fingerprint", "ready", "summary", "issues"}, "提交跨文件语义审查结论；ready=true 后进入写作"),
+	}
+	for _, a := range flow.PlanningRepairActions(foundationMissing, s.PlanningTier) {
+		item := action(a.Tool, a.Arguments, a.RequiredInputs, a.Purpose)
+		item["mode"] = string(a.Mode)
+		item["choice_group"] = a.ChoiceGroup
+		actions = append(actions, item)
 	}
 	return map[string]any{
 		"done": false, "need": "plan_start", "agent": "architect",
 		"brief": info.Brief, "style": info.Style,
 		"foundation_missing": foundationMissing, "planning_tier": tier,
-		"task": "开局：" + who + "。步骤：选择匹配篇幅的 novel_guide(role=architect 或 architect_long) 读规划协议 → save_book 落书名简介 → save_foundation 落缺项（" + missing + "）→ novel_context 取 fingerprint → 审查跨文件一致性 → audit_foundation；通过后调 next_step 进入写作。" +
-			"项目 brief：" + info.Brief,
+		"task":    "开局：" + who + "。步骤：读取匹配篇幅的 novel_guide → 按 actions 逐项补齐缺项（" + missing + "）；基础设定齐全后 next_step 会要求 novel_context 取 fingerprint 并 audit_foundation。每完成当前 actions 都重新调 next_step，不要自行跳过路由。项目 brief：" + info.Brief,
 		"reason":  reason,
 		"actions": actions,
 	}
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }

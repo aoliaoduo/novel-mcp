@@ -37,7 +37,7 @@ func TestNextStepNewProjectReturnsPlanStart(t *testing.T) {
 		t.Fatalf("新项目应走 plan_start: %v", res)
 	}
 	task, _ := res["task"].(string)
-	for _, want := range []string{"save_book", "save_foundation", "audit_foundation", "next_step"} {
+	for _, want := range []string{"save_book", "save_foundation", "next_step"} {
 		if !strings.Contains(task, want) {
 			t.Fatalf("plan_start task 缺 %q: %s", want, task)
 		}
@@ -46,14 +46,110 @@ func TestNextStepNewProjectReturnsPlanStart(t *testing.T) {
 		t.Fatalf("plan_start 应回显 brief/style: %v", res)
 	}
 	actions, ok := res["actions"].([]any)
-	if !ok || len(actions) != 5 {
-		t.Fatalf("plan_start 应返回 5 个结构化 actions: %#v", res["actions"])
+	if !ok || len(actions) != 3 {
+		t.Fatalf("首次 plan_start 应只返回选型、书信息、带 scale 种子设定 3 个结构化 actions: %#v", res["actions"])
 	}
-	wantActions := []string{"novel_guide", "save_book", "save_foundation", "novel_context", "audit_foundation"}
+	wantActions := []string{"novel_guide", "save_book", "save_foundation"}
 	for i, want := range wantActions {
 		item, _ := actions[i].(map[string]any)
 		if item["tool"] != want {
 			t.Fatalf("actions[%d] = %v, want %s", i, item, want)
+		}
+	}
+	seed, _ := actions[2].(map[string]any)
+	args, _ := seed["arguments"].(map[string]any)
+	if args["type"] != "premise" {
+		t.Fatalf("首次种子设定应明确先落 premise，got %#v", seed)
+	}
+	if !strings.Contains(fmt.Sprint(seed["required_inputs"]), "scale") {
+		t.Fatalf("首次种子设定必须要求 scale，got %#v", seed)
+	}
+}
+
+func TestPlanStartWithKnownTierExpandsEveryMissingFoundation(t *testing.T) {
+	s := flow.State{
+		Progress:          &domain.Progress{Phase: domain.PhaseOutline},
+		PlanningTier:      domain.PlanningTierLong,
+		FoundationMissing: []string{"outline", "characters", "world_rules"},
+	}
+	out := planStart(s, ProjectInfo{ID: "known-tier", Brief: "长篇", Style: "default"}, "test")
+	actions, ok := out["actions"].([]map[string]any)
+	if !ok {
+		t.Fatalf("actions type=%T", out["actions"])
+	}
+	if len(actions) != 4 {
+		t.Fatalf("已知 tier 时应为 guide + 3 个缺项 action，got %d: %#v", len(actions), actions)
+	}
+	want := []struct {
+		tool string
+		typ  string
+	}{
+		{"novel_guide", ""},
+		{"save_foundation", "layered_outline"},
+		{"save_foundation", "characters"},
+		{"save_foundation", "world_rules"},
+	}
+	for i, w := range want {
+		if actions[i]["tool"] != w.tool {
+			t.Fatalf("actions[%d].tool=%v want=%s", i, actions[i]["tool"], w.tool)
+		}
+		if w.typ != "" {
+			args, _ := actions[i]["arguments"].(map[string]any)
+			if args["type"] != w.typ {
+				t.Fatalf("actions[%d] type=%v want=%s", i, args["type"], w.typ)
+			}
+		}
+	}
+}
+
+func TestNextStepStagesFirstPlanningThenEmitsExactLongFoundationActions(t *testing.T) {
+	p := newProjects(t)
+	id := create(t, p, "staged-plan")
+
+	first, err := p.Call(context.Background(), id, "next_step", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev, _ := first["revision"].(string)
+	if len(rev) != 64 {
+		t.Fatalf("first next_step revision=%q", rev)
+	}
+
+	book := call(t, p, id, "save_book", rev, map[string]any{
+		"title": "潮汐档案", "synopsis": "守塔人追查倒流潮汐。",
+	})
+	if book["error"] != nil {
+		t.Fatalf("save_book: %#v", book["error"])
+	}
+	rev, _ = book["revision"].(string)
+	premise := call(t, p, id, "save_foundation", rev, map[string]any{
+		"type": "premise", "scale": "long", "content": "# 故事前提\n一名守塔人追查倒流潮汐。",
+	})
+	if premise["error"] != nil {
+		t.Fatalf("save premise: %#v", premise["error"])
+	}
+
+	second, err := p.Call(context.Background(), id, "next_step", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, _ := second["result"].(map[string]any)
+	if res["agent"] != "architect_long" {
+		t.Fatalf("tier 落盘后应由 architect_long 补齐，got %#v", res)
+	}
+	actions, ok := res["actions"].([]any)
+	if !ok || len(actions) != 3 {
+		t.Fatalf("第二轮应精确返回 3 个缺项 action，got %#v", res["actions"])
+	}
+	wantTypes := []string{"layered_outline", "characters", "world_rules"}
+	for i, want := range wantTypes {
+		item, _ := actions[i].(map[string]any)
+		if item["tool"] != "save_foundation" {
+			t.Fatalf("actions[%d].tool=%v", i, item["tool"])
+		}
+		args, _ := item["arguments"].(map[string]any)
+		if args["type"] != want || args["scale"] != "long" {
+			t.Fatalf("actions[%d] args=%#v want type=%s scale=long", i, args, want)
 		}
 	}
 }

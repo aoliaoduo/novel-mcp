@@ -78,7 +78,7 @@ func (t *SaveFoundationTool) Execute(_ context.Context, args json.RawMessage) (j
 		switch progress.Phase {
 		case domain.PhaseWriting:
 			return nil, fmt.Errorf(
-				"写作阶段禁止使用 %s 全量覆盖大纲。请使用 revise_outline 修订未发生章节、expand_next_arc 展开下一骨架弧，或 append_volume 追加新卷: %w",
+				"写作阶段禁止使用 %s 全量覆盖大纲。请使用 revise_outline 修订未发生章节、expand_next_arc 展开下一骨架弧，或调用 save_foundation(type=append_volume) 追加新卷: %w",
 				a.Type, errs.ErrToolPrecondition)
 		case domain.PhaseComplete:
 			return nil, fmt.Errorf(
@@ -280,10 +280,10 @@ func (t *SaveFoundationTool) Execute(_ context.Context, args json.RawMessage) (j
 				return nil, fmt.Errorf("load outlined chapters: %w: %w", errs.ErrStoreRead, outlineErr)
 			}
 			if next <= len(outline) {
-				return nil, fmt.Errorf("当前详细大纲还有未写章节（下一章 %d/当前已细化 %d），不可完本；想提前收束请改用 append_volume 且卷 JSON 顶层带 \"final\": true 宣告收官卷: %w", next, len(outline), errs.ErrToolPrecondition)
+				return nil, fmt.Errorf("当前详细大纲还有未写章节（下一章 %d/当前已细化 %d），不可完本；想提前收束请调用 save_foundation(type=append_volume)，并在卷 JSON 顶层带 \"final\": true 宣告收官卷: %w", next, len(outline), errs.ErrToolPrecondition)
 			}
 		} else if progress.TotalChapters > 0 && next <= progress.TotalChapters {
-			return nil, fmt.Errorf("大纲内还有未写章节（下一章 %d/共 %d），不可完本；想提前收束请改用 append_volume 且卷 JSON 顶层带 \"final\": true 宣告收官卷: %w", next, progress.TotalChapters, errs.ErrToolPrecondition)
+			return nil, fmt.Errorf("大纲内还有未写章节（下一章 %d/共 %d），不可完本；想提前收束请调用 save_foundation(type=append_volume)，并在卷 JSON 顶层带 \"final\": true 宣告收官卷: %w", next, progress.TotalChapters, errs.ErrToolPrecondition)
 		}
 		// 活跃长线未收束不可完本——OpenThreads 的字段契约即"需收束才能结局"。这不是
 		// 语义复判：真认为已全部收束，先 update_compass 清空 open_threads 再完本，把
@@ -294,7 +294,7 @@ func (t *SaveFoundationTool) Execute(_ context.Context, args json.RawMessage) (j
 			return nil, fmt.Errorf("load compass: %w: %w", errs.ErrStoreRead, err)
 		}
 		if compass != nil && len(compass.OpenThreads) > 0 {
-			return nil, fmt.Errorf("compass 还有 %d 条活跃长线未收束（如：%s），不可完本。确认已全部收束请先 update_compass 清空 open_threads 再调 complete_book；仍需展开请 append_volume（可带 \"final\": true 宣告收官卷）: %w",
+			return nil, fmt.Errorf("compass 还有 %d 条活跃长线未收束（如：%s），不可完本。确认已全部收束请先 save_foundation(type=update_compass) 清空 open_threads，再调用 save_foundation(type=complete_book)；仍需展开请调用 save_foundation(type=append_volume)，可在卷 JSON 顶层带 \"final\": true 宣告收官卷: %w",
 				len(compass.OpenThreads), compass.OpenThreads[0], errs.ErrToolPrecondition)
 		}
 		if err := t.store.Progress.MarkComplete(); err != nil {

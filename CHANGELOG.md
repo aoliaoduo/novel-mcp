@@ -10,6 +10,7 @@
 - 新增 `novel-mcp doctor [--deep] [--json]` 脱敏诊断入口，可检查配置、凭据格式、服务状态和项目完整性，输出不包含 route、Bearer、项目 ID、正文或本机绝对路径。
 - 新增长篇 lifecycle scenario，覆盖多弧、多卷、弧/卷收尾、收官卷、重启恢复、完本后返工和再次完结。
 - GitHub CodeQL 静态安全分析。
+- 根 README 重构为简短英文入口，并新增对等的 `README.zh-CN.md`；详细写作工作流和连接/公网排障拆为中英文专题文档，portable Release 同时携带两份 README。
 
 ### Fixed
 
@@ -18,6 +19,8 @@
 - 返工/打磨已完成章节时，`next_step` 不再要求一个必然被跳过的 `plan_chapter`，改为直接进入返工正文→回读→检查→提交协议。
 - 完本后的 `next_step` 明确指向 `reopen_book`，不再用含糊的“改设定再重开”提示。
 - 完整 Tailscale smoke 成功后自动删除临时项目；Tailscale 启动/控制面异常时给出更直接的代理/TUN 排查提示。
+- 首次项目规划改成两阶段 action plan：先落带 `scale` 的 premise 确定 short/mid/long，再由下一次 `next_step` 精确派发 `outline`/`layered_outline`、角色、世界规则等缺项，避免严格按 actions 执行的 Host 漏设定。
+- MCP instructions、长篇提示词和运行时错误统一使用真实工具调用名，例如 `save_foundation(type=append_volume)`，不再把 `append_volume` / `complete_book` 误写成独立工具。
 
 ## [0.6.0] - 2026-09-24
 

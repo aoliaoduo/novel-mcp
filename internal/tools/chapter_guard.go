@@ -39,6 +39,6 @@ func EnsureChapterExpanded(st *store.Store, chapter int) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"第 %d 章不在分层大纲范围内：写作必须先 expand_next_arc 扩展弧或 append_volume 追加卷；若全书已完结请调 save_foundation type=complete_book: %w",
+		"第 %d 章不在分层大纲范围内：写作必须先 expand_next_arc 扩展弧，或调用 save_foundation(type=append_volume) 追加卷；若全书已完结请调用 save_foundation(type=complete_book): %w",
 		chapter, errs.ErrToolPrecondition)
 }

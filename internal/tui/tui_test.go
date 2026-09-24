@@ -266,7 +266,7 @@ func TestChunkRunes(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 	// 回归：中英混排折行不断字——各块拼回去必须与原文完全一致。
-	mixed := "通过 MCP 连接 novel-mcp 小说引擎：MCP 端点填 https://x/mcp/766a17b5；连上后先调 list_projects 看看有哪些项目。"
+	mixed := "通过 MCP 连接 novel-mcp 小说工件服务：MCP 端点填 https://x/mcp/766a17b5；连上后先调 list_projects 看看有哪些项目。"
 	got := chunkRunes(mixed, 20)
 	joined := ""
 	for _, c := range got {
