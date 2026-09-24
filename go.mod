@@ -1,6 +1,6 @@
 module novel-mcp
 
-go 1.25.5
+go 1.26.0
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -8,7 +8,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/voocel/agentcore v1.8.3
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.41.0
 )
 
