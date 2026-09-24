@@ -26,12 +26,14 @@ AI / MCP Host  ── Streamable HTTP MCP ──▶  novel-mcp  ──▶  项�
 
 ## 快速开始
 
-1. 从 **GitHub Releases** 下载最新正式版本。Windows 用户可直接运行 `.exe`。
+1. 从 **GitHub Releases** 下载 Windows ZIP，解压后双击其中的 `novel-mcp.exe`。
 2. 首次启动选择 **网页 / 云端 AI 客户端** 或 **仅本机 AI 客户端**。
 3. TUI 就绪后按 **`C`**，复制完整 MCP 配置。
 4. 粘贴到 MCP 客户端。连接后先调 `list_projects`，选定项目后调 `next_step` 开工。
 
 网页/云端模式默认使用 Tailscale Funnel + Bearer；本机模式只监听 `127.0.0.1`。
+
+官方 Release 是便携包：请把解压后的目录整体保留。`portable.flag` 存在时，配置、凭据、日志和小说项目都会写到 `novel-mcp` 程序旁的 `data/`；整个文件夹可以直接移动或备份。单独复制一个没有 `portable.flag` 的二进制时，才回退到用户目录下的 `~/.novel-mcp`。
 
 启动或连接异常时先运行：
 
@@ -42,7 +44,7 @@ novel-mcp doctor --deep
 
 `doctor` 只读且主动脱敏，不输出 route、Bearer、公网 hostname、项目 ID、小说正文或本机绝对路径，结果可以较安全地贴给 AI 或 Issue 排查。
 
-实际运行时还会在 `<data>/logs/novel-mcp.log` 追加脱敏 JSONL 调用日志，便于事后定位网页 AI 的真实调用顺序、错误码和耗时；日志不保存正文、route、Bearer 或完整请求体。
+实际运行时还会在 `<data>/logs/novel-mcp.log` 追加脱敏 JSONL 调用日志；portable 包中就是 `data/logs/novel-mcp.log`。日志便于事后定位网页 AI 的真实调用顺序、错误码和耗时，不保存正文、route、Bearer 或完整请求体。
 
 ## 常用命令
 

@@ -51,7 +51,8 @@ const usage = `novel-mcp — 供网页 MCP 调用的小说创作服务（核心�
                          [--allow-public-url-token-only] [--smoke] [--dry-run] [--no-tui]
   （无参数、直接双击 novel-mcp.exe：首次选择“公网”或“仅本机”，之后记住选择）
 
-默认只监听 127.0.0.1:8765，数据在 ~/.novel-mcp。只有 /mcp/<route> 与 /healthz 存在，
+默认只监听 127.0.0.1:8765。portable 包把数据放在程序旁的 data/；单独二进制仍用 ~/.novel-mcp。
+只有 /mcp/<route> 与 /healthz 存在，
 没有控制台、没有管理 API、没有 shell 与任意文件工具。
 `
 
@@ -63,13 +64,6 @@ type Config struct {
 	AllowOrigins  []string `json:"allow_origins"`
 	RequireBearer *bool    `json:"require_bearer"`
 	StartupMode   string   `json:"startup_mode,omitempty"`
-}
-
-func defaultDataDir() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".novel-mcp")
-	}
-	return filepath.Join(".novel-mcp")
 }
 
 func defaults() Config {
@@ -128,6 +122,11 @@ func loadConfig(path string) (Config, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&c); err != nil {
 		return c, fmt.Errorf("config %s: %w", path, err)
+	}
+	// Portable bundle 可以整体移动。config.json 里可能还留着移动前的绝对 data 路径；
+	// 只要加载的是当前 bundle 自己的 config，就以 exe 旁的 data/ 为准。
+	if dataDir, ok := isPortableConfig(path); ok {
+		c.Data = dataDir
 	}
 	return c, nil
 }

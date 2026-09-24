@@ -4,7 +4,7 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `build-dev.cmd` | Windows 开发构建，唯一输出为 `dist\\novel-mcp.exe` |
+| `build-dev.cmd` | Windows 开发构建，输出 `dist\\novel-mcp.exe` + `portable.flag`，运行数据进入 `dist\\data` |
 | `build-release.py` | 用 `.go-version` 固定工具链交叉构建全部正式分发资产 |
 | `verify-release.py` | 校验 release manifest、SHA256 和 portable 包内容 |
 | `bootstrap-go.cmd` / `.ps1` | 本机没有合适 Go 时，把固定版本工具链放到 `.toolchain/` |
@@ -20,7 +20,7 @@
 - `.toolchain/`：本地 Go 工具链缓存，不提交。
 - `.go-version`：官方开发/Release 的精确 Go 工具链版本；`go.mod` 仍只表示最低要求。
 - `.local/`：测试依赖与临时开发缓存，不放给用户双击的程序。
-- `dist/`：本机当前可运行构建；需要测试最新代码时双击 `dist\\novel-mcp.exe`。
+- `dist/`：本机当前可运行的 portable 构建；双击 `dist\\novel-mcp.exe`，运行数据写入 `dist\\data`。
 - 正式历史版本从 GitHub Releases 获取，不在仓库目录长期保存副本。
 - 若旧 Git 历史含凭据、个人邮箱、本机路径或私有主机名，不要直接改仓库 Visibility；先运行
   `python scripts/export-public-tree.py --out ../novel-mcp-public` 生成无历史的公开镜像工作区。

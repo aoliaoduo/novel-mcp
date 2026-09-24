@@ -28,8 +28,10 @@ if errorlevel 1 (
   if "%NOPAUSE%"=="0" pause
   exit /b 1
 )
+>dist\portable.flag echo novel-mcp portable data mode
 
 echo.
 echo READY: dist\novel-mcp.exe
+echo DATA:  dist\data\ ^(created on first run^)
 echo Double-click that file to start novel-mcp.
 if "%NOPAUSE%"=="0" pause

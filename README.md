@@ -26,12 +26,14 @@ The server does **not** call a model, store model API keys, run a background wri
 
 ## Quick start
 
-1. Download the latest asset from **GitHub Releases**. Windows users can run the `.exe` directly.
+1. Download the Windows ZIP from **GitHub Releases**, extract it, then double-click `novel-mcp.exe`.
 2. On first launch choose either **Web / cloud AI client** or **Local AI client**.
 3. When the TUI is ready, press **`C`** to copy the complete MCP configuration.
 4. Paste it into your MCP client. After connecting, the client should call `list_projects`, then `next_step` for the selected project.
 
 For web/cloud clients, the default public mode uses Tailscale Funnel and Bearer auth. Local mode listens only on `127.0.0.1`.
+
+Official release archives are portable. Keep the extracted folder together: when `portable.flag` is present, configuration, credentials, logs, and novel projects are stored under the sibling `data/` directory, so moving or backing up the whole folder moves the workspace with it. A standalone binary without `portable.flag` falls back to `~/.novel-mcp`.
 
 If setup fails, run:
 
@@ -42,7 +44,7 @@ novel-mcp doctor --deep
 
 `doctor` is read-only and intentionally redacts route tokens, Bearer tokens, public hostnames, project IDs, novel text, and local absolute paths so its output can be shared in an issue or with an AI assistant.
 
-While the service is running it also appends a redacted JSONL call log at `<data>/logs/novel-mcp.log`, which is useful for reconstructing the web AI's actual tool sequence, error codes, and latency. The log does not store prose, route tokens, Bearer tokens, or full request bodies.
+While the service is running it also appends a redacted JSONL call log at `<data>/logs/novel-mcp.log` (`data/logs/novel-mcp.log` in a portable bundle), which is useful for reconstructing the web AI's actual tool sequence, error codes, and latency. The log does not store prose, route tokens, Bearer tokens, or full request bodies.
 
 ## Common commands
 

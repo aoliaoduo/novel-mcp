@@ -123,6 +123,10 @@ The server does not call an AI model; connect it from your MCP-capable AI client
 3. When the TUI says the service is ready, press C to copy the complete MCP config.
 4. Paste that config into your AI client's MCP settings.
 
+Keep the extracted folder together. Runtime config, credentials, logs, and novels are
+created under the sibling data folder, so moving or backing up the whole folder moves
+the novel-mcp workspace with it.
+
 The route and Bearer token are credentials. Do not share screenshots with them revealed.
 This project is not code-signed yet. Windows SmartScreen may warn on first launch; verify
 the GitHub Release and SHA256SUMS.txt before choosing to run an unsigned binary.
@@ -133,6 +137,8 @@ the GitHub Release and SHA256SUMS.txt before choosing to run an unsigned binary.
 2. Choose web/cloud or local mode on first launch.
 3. Press C in the TUI to copy the complete MCP config.
 
+This release archive is portable: runtime data is created in ./data next to the binary.
+
 If macOS blocks an unsigned downloaded binary, use the system Security settings only if
 you trust the GitHub Release and have verified SHA256SUMS.txt.
 """
@@ -141,6 +147,8 @@ you trust the GitHub Release and have verified SHA256SUMS.txt.
 1. Open a terminal in this folder and run: ./novel-mcp
 2. Choose web/cloud or local mode on first launch.
 3. Press C in the TUI to copy the complete MCP config.
+
+This release archive is portable: runtime data is created in ./data next to the binary.
 
 For clipboard shortcuts install a supported clipboard helper (wl-copy or xclip) if needed.
 """
@@ -224,6 +232,7 @@ def package_files(binary: Path, goos: str, version: str) -> list[tuple[str, byte
     binary_name = "novel-mcp.exe" if goos == "windows" else "novel-mcp"
     return [
         (binary_name, binary.read_bytes(), 0o755),
+        ("portable.flag", b"novel-mcp portable data mode\n", 0o644),
         ("START_HERE.txt", start_here(goos, version).encode("utf-8"), 0o644),
         ("README.md", (ROOT / "README.md").read_bytes(), 0o644),
         ("README.zh-CN.md", (ROOT / "README.zh-CN.md").read_bytes(), 0o644),

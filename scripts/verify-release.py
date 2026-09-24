@@ -47,7 +47,7 @@ def main() -> int:
     if sums != expected_sums:
         raise SystemExit("SHA256SUMS.txt does not match RELEASE-MANIFEST.json")
 
-    required = {"START_HERE.txt", "README.md", "README.zh-CN.md", "LICENSE"}
+    required = {"START_HERE.txt", "README.md", "README.zh-CN.md", "LICENSE", "portable.flag"}
     for path in root.iterdir():
         if path.suffix == ".zip":
             with zipfile.ZipFile(path) as zf:
