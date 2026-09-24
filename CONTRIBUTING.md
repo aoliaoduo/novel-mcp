@@ -70,6 +70,19 @@ PR 尽量保持单一目的。描述中说明：
 
 仓库的 PR 模板会提醒隐私与验证要求。
 
+### Dependabot 自动维护
+
+Dependabot 每周检查 Go modules 与 GitHub Actions。为了减少通知，patch 与 minor 更新分别按生态分组；
+major 更新仍保持独立 PR，便于定位兼容性问题。
+
+自动合并策略刻意保守：只有 **Dependabot 创建、版本变化可明确解析为纯 patch、并且完整
+`safety` CI 全部通过** 的 PR 才会自动 squash merge。若 `main` 已前进，自动化会先刷新
+Dependabot 分支，等待新一轮 CI，而不是用旧测试结果直接合并。
+
+以下情况保留人工处理：minor/major、预发布或无法可靠解析的版本变化，以及任何 CI 失败。
+自动化只在这些情况下添加 `manual-review` 并请求仓库 owner review；普通 patch 更新不再主动打扰维护者。
+因此维护者不需要逐个处理普通 patch 更新，但仍应人工查看可能改变兼容性的升级。
+
 ## Issue 与安全问题
 
 普通 Bug/Feature 可以使用 Issue 模板，但必须先脱敏。不要粘贴真实 MCP URL、route、Bearer、`credentials.json`、私有小说正文、本机绝对路径或内部主机名。

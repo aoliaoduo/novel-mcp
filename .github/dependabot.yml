@@ -12,6 +12,13 @@ updates:
       - dependencies
     commit-message:
       prefix: deps
+    groups:
+      go-patch:
+        update-types:
+          - patch
+      go-minor:
+        update-types:
+          - minor
 
   - package-ecosystem: github-actions
     directory: /
@@ -25,3 +32,10 @@ updates:
       - dependencies
     commit-message:
       prefix: ci
+    groups:
+      actions-patch:
+        update-types:
+          - patch
+      actions-minor:
+        update-types:
+          - minor

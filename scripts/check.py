@@ -74,6 +74,8 @@ def main() -> int:
     if args.history:
         run(*audit, "--history")
 
+    run(sys.executable, "-m", "unittest", "discover", "scripts", "-p", "test_*.py")
+
     go = find_go()
     run(go, "test", "-count=1", "./...")
     run(go, "vet", "./...")

@@ -38,7 +38,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Scan Git history and commit metadata
-        run: python3 scripts/public-audit.py --history
+        run: python3 scripts/public-audit.py --history --history-ref HEAD
 
   go-verify:
     if: github.event.repository.private == false

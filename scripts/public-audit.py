@@ -73,6 +73,7 @@ TUNNEL_RE = re.compile(
 )
 
 SAFE_EMAIL_DOMAINS = {"example.com", "users.noreply.github.com"}
+SAFE_EMAILS = {"noreply@github.com"}
 SAFE_TUNNEL_MARKERS = ("example", "xxxx", "abc.", "node.tail", "a.b.ts.net", "<")
 
 SENSITIVE_EXACT = {
@@ -136,8 +137,9 @@ def scan_text(scope: str, location_prefix: str, text: str) -> set[Finding]:
             scheme = line.rfind("://", 0, match.start())
             if scheme >= 0 and not any(ch.isspace() for ch in line[scheme + 3:match.start()]):
                 continue
-            domain = email.rsplit("@", 1)[-1].lower()
-            if domain not in SAFE_EMAIL_DOMAINS:
+            lower_email = email.lower()
+            domain = lower_email.rsplit("@", 1)[-1]
+            if lower_email not in SAFE_EMAILS and domain not in SAFE_EMAIL_DOMAINS:
                 findings.add(Finding(scope, "personal-email", loc))
         for host in TUNNEL_RE.findall(line):
             lower = host.lower()
@@ -175,12 +177,19 @@ def scan_current() -> set[Finding]:
     return findings
 
 
-def scan_history() -> set[Finding]:
+def history_args(history_refs: list[str]) -> list[str]:
+    if history_refs:
+        return history_refs
+    return ["--all"]
+
+
+def scan_history(history_refs: list[str]) -> set[Finding]:
     findings: set[Finding] = set()
+    refs = history_args(history_refs)
 
     # Patch history catches secrets or private paths that were later removed.
     log = git(
-        "log", "--all", "--no-color", "--format=commit %H",
+        "log", *refs, "--no-color", "--format=commit %H",
         "-p", "--", ".", ":!.toolchain/**"
     )
     commit = "unknown"
@@ -216,7 +225,7 @@ def scan_history() -> set[Finding]:
 
     # Author/committer metadata is not visible in file patches but becomes public
     # with history. Treat either address as publication metadata.
-    for row in git("log", "--all", "--format=%H%x09%ae%x09%ce").splitlines():
+    for row in git("log", *refs, "--format=%H%x09%ae%x09%ce").splitlines():
         parts = row.split("\t")
         if len(parts) != 3:
             continue
@@ -225,8 +234,9 @@ def scan_history() -> set[Finding]:
             email = email.strip()
             if not email:
                 continue
-            domain = email.rsplit("@", 1)[-1].lower() if "@" in email else ""
-            if domain not in SAFE_EMAIL_DOMAINS:
+            lower_email = email.lower()
+            domain = lower_email.rsplit("@", 1)[-1] if "@" in lower_email else ""
+            if lower_email not in SAFE_EMAILS and domain not in SAFE_EMAIL_DOMAINS:
                 findings.add(Finding(
                     "history", f"{role}-email",
                     f"{commit_hash[:12]}:commit-metadata"
@@ -234,7 +244,7 @@ def scan_history() -> set[Finding]:
 
     # Sensitive filenames matter even when Git treats a blob as binary or the
     # contents do not match one of the token regexes.
-    for rel in git("log", "--all", "--name-only", "--format=").splitlines():
+    for rel in git("log", *refs, "--name-only", "--format=").splitlines():
         rel = rel.strip()
         if rel and sensitive_filename(rel):
             findings.add(Finding("history", "sensitive-filename", rel))
@@ -248,11 +258,18 @@ def main() -> int:
         "--history", action="store_true",
         help="also scan all reachable Git patch history and author metadata",
     )
+    parser.add_argument(
+        "--history-ref", action="append", default=[], metavar="REF",
+        help=(
+            "limit --history to one or more Git refs (repeatable); default scans --all. "
+            "CI should normally use --history-ref HEAD so unrelated PR refs cannot affect the result"
+        ),
+    )
     args = parser.parse_args()
 
     findings = scan_current()
     if args.history:
-        findings |= scan_history()
+        findings |= scan_history(args.history_ref)
 
     if findings:
         print(f"public-audit: FAIL ({len(findings)} redacted finding(s))")
