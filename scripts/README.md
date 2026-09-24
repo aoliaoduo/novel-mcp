@@ -11,6 +11,7 @@
 | `tailscale-repair.cmd` / `.ps1` | Tailscale 卡在未登录/NoState 时的 Windows 修复工具 |
 | `mcp-ts-smoke.mjs` | 官方 TypeScript MCP SDK 黑盒验证 |
 | `public-audit.py` | 当前树/完整历史的隐私与 secret 审计 |
+| `check.py` | 统一本地验证入口：隐私审计 + Go test/vet + diff check；可选 race/history |
 | `export-public-tree.py` | 将已通过审计的当前可发布树导出为**无旧历史**的新 Git 仓库；用于从私有开发仓安全创建 public mirror |
 
 约定：

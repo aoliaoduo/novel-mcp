@@ -1,60 +1,174 @@
 # AGENTS.md
 
-## 隐私与公开仓库安全规则
+本文件是编码 Agent 在 novel-mcp 仓库中的主入口。目标是让任何 AI 在不依赖聊天历史的情况下，快速建立正确心智模型并安全修改代码。
 
-本仓库按“所有已提交内容最终都可能永久公开”处理。AI/Agent 在修改、提交、打 tag、创建 Release 或推送前，必须优先保护凭据、个人隐私和本机环境信息。
+## 先读什么
 
-### 禁止提交的内容
+开始复杂改动前，按顺序读取：
 
-- 任何真实凭据或访问材料：API key、token、Bearer、MCP route、完整可访问 MCP URL、cookie、私钥、Tailscale auth key、OAuth/登录凭据等。
-- `credentials.json`、`config.json`、`.env*`、私钥文件、运行时数据目录、日志、用户小说项目数据、备份文件。
-- 个人或机器可识别信息：私人邮箱、本机用户名、真实 home 绝对路径、机器专用 hostname、未明确打算公开的 tailnet/Funnel/内网主机名或 URL。
-- 从私有历史复制来的 `.git/`、旧 commit、旧 tag、旧 Release 元数据，除非已经完成专门的历史安全审计。
+1. `AGENTS.md`（本文件）；
+2. `docs/ARCHITECTURE.md`；
+3. 与任务相关目录下的局部 `AGENTS.md`；
+4. `SECURITY.md`（涉及 HTTP、凭据、路径、外网时必须读）；
+5. `CONTRIBUTING.md`（提交、测试和 PR 约定）。
 
-示例和文档必须使用明显的占位值，例如 `<route>`、`<bearer>`、`<user>`、`<host>`、`example.com`、`127.0.0.1`。不要为了“让示例可直接运行”而放入真实值。
+不要先通读整个仓库再猜架构；优先沿下面的“改动导航”定位。
 
-### 提交前强制检查
+## 一句话心智模型
 
-在任何 `git commit` 或 `git push` 前：
+**AI 客户端负责创作和语义判断；novel-mcp 服务器负责事实、校验、持久化、确定性路由、并发控制与恢复。服务器本身不调用模型。**
 
-1. 运行 `python scripts/public-audit.py`，必须 PASS。
-2. 检查 `git status`、`git diff` 和 `git diff --cached`，确认没有意外加入本机文件、运行数据或秘密值。
-3. 确认提交身份适合公开；本仓库必须使用 GitHub noreply 地址，不要使用个人邮箱。
-4. 不得通过删除/弱化 `.gitignore`、`scripts/public-audit.py` 或 CI 安全检查来绕过审计。
+```text
+AI / MCP Host → Streamable HTTP → internal/server
+                                ├→ internal/flow
+                                ├→ internal/tools
+                                └→ internal/store
+```
 
-本仓库提供版本化 Git hooks。每个新 clone 首次开发前必须确认：
+## 不可破坏的不变量
+
+### 1. 服务端不调用模型
+
+不要加入 LLM provider、模型 API key、后台 Worker、自动续写引擎或“服务器替 AI 做语义判断”的路径。
+
+需要创造性判断时，应让服务器返回结构化 context，由客户端 AI 产出结果，再由服务器验证/保存。
+
+### 2. `next_step` 必须保持确定性
+
+`internal/flow` 只根据磁盘事实和状态做路由。不要在 flow 中引入随机性、网络调用或模型调用。
+
+客户端主循环应是：`next_step → 执行 actions → next_step`。
+
+### 3. 不接受宿主任意路径
+
+远端只能通过安全 project ID 寻址。不要增加 MCP 参数让客户端传宿主 `path`、`dir`、`file`，也不要新增 shell/exec/任意文件工具。
+
+### 4. 写工具必须尊重 revision
+
+项目 `revision` 是 whole-project 内容指纹，不是递增版本号。写操作必须使用最新 `expected_revision`；冲突时拒绝写入。
+
+不要通过“自动重试写入”掩盖 `REVISION_CONFLICT`，尤其是 append 类操作。
+
+### 5. `commit_chapter` 恢复语义不能被破坏
+
+章节提交是可恢复 Saga。第一次执行会冻结 structured payload 和 draft snapshot；崩溃恢复重放冻结事实。
+
+不要让恢复路径重新使用新的聊天内容或新的调用参数替换冻结载荷。
+
+### 6. 持久化必须可恢复
+
+关键写入使用原子 temp + sync + rename；JSONL 追加要能处理尾部半截记录并支持幂等 replay。
+
+不要用简单覆盖替换已有恢复机制。
+
+### 7. MCP 契约是公开 API
+
+当前只支持 MCP `2026-07-28`。修改 tool/resource/prompt/schema/URI 时必须同步契约测试和文档。
+
+不要为了“兼容一下”静默保留未测试的旧协议 shim。
+
+### 8. 公开仓库隐私是硬约束
+
+所有 commit、tag、Release、Issue、PR、CI log 都按永久公开处理。不得提交真实凭据、个人邮箱、本机路径、机器 hostname、私有网络地址或用户小说数据。
+
+## 改动导航
+
+| 需求 | 优先查看 |
+| --- | --- |
+| CLI / 启动参数 / 双击行为 | `cmd/novel-mcp` |
+| MCP tool/schema/prompt/resource | `internal/server` |
+| HTTP/Auth/Host/Origin | `internal/server/http.go`, `SECURITY.md` |
+| 项目创建/删除/隔离/revision | `internal/server/projects.go` |
+| `next_step` 路由 | `internal/flow` |
+| 写作业务工具 | `internal/tools` |
+| commit/recovery | `internal/tools/commit_*`, `internal/domain/commit.go` |
+| 磁盘格式/原子 IO/JSONL | `internal/store` |
+| 阶段/状态模型 | `internal/domain` |
+| Tailscale Serve/Funnel | `internal/public` |
+| TUI | `internal/tui` |
+| prompts/references | `assets` |
+| release/build/audit | `scripts`, `.github/workflows` |
+
+高风险目录有自己的 `AGENTS.md`，局部规则优先于本文件的一般建议。
+
+## 推荐工作方式
+
+1. 先确认任务触及哪些不变量和公开契约。
+2. 阅读最小必要文件，不要无目的大范围重写。
+3. 优先补/改测试，再改实现，或至少同步完成。
+4. 保持错误码、revision、恢复语义和安全边界显式。
+5. 完成后运行与风险匹配的验证。
+
+## 验证矩阵
+
+普通代码/文档改动：
+
+```bash
+python scripts/check.py
+```
+
+涉及并发、锁、HTTP/MCP 生命周期、store、commit/recovery：
+
+```bash
+python scripts/check.py --race --history
+```
+
+涉及真实 MCP wire contract 时，除普通测试外重点跑 `internal/server` 对应 E2E/contract 测试。
+
+涉及 Release 时按 `docs/RELEASING.md` 执行完整流程。
+
+涉及 Tailscale/Funnel 的真实环境问题时，不要把同机 tailnet 测试等同于公网验证。
+
+## 隐私与 Git 安全规则
+
+### 禁止提交
+
+- API key、token、Bearer、MCP route、真实可访问 MCP URL、cookie、私钥、Tailscale auth key、OAuth/登录凭据；
+- `credentials.json`、`config.json`、`.env*`、日志、运行时数据、用户小说项目数据、备份；
+- 私人邮箱、本机用户名、真实 home 绝对路径、机器 hostname、未明确公开的 tailnet/Funnel/内网主机名或 URL；
+- 旧 Private archive 的 `.git/`、branch、tag、Release 或其他未经审计的 Git 对象。
+
+示例统一使用 `<route>`、`<bearer>`、`<user>`、`<host>`、`example.com`、`127.0.0.1` 等明显占位值。
+
+### 每个 clone 的本地保护
+
+新 clone 第一次开发必须：
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-`.githooks/pre-commit` 会在 commit 前检查当前可发布树和提交邮箱；
-`.githooks/pre-push` 会在 push 前扫描完整可达 Git 历史。不要使用 `--no-verify`
-绕过这些 hooks，除非用户明确要求且已经人工完成等价安全审计。
+本仓库提交身份必须使用 GitHub noreply 邮箱。不要使用 `--no-verify` 绕过 hooks，除非用户明确要求且已经人工完成等价安全审计。
 
-在准备公开历史、迁移仓库、创建 tag/Release 或执行可能让旧历史可见的操作前，还必须运行：
+`.githooks/pre-commit` 会运行当前树审计并检查 author/committer 邮箱；`.githooks/pre-push` 会扫描完整可达历史。
 
-```bash
-python scripts/public-audit.py --history
-```
+### 发现泄露
 
-必须 PASS 后才能继续。
+如果真实凭据进入过任何 commit：
 
-### 发现泄露时
+1. 停止继续发布；
+2. 不回显秘密值；
+3. 先轮换/撤销凭据；
+4. 再处理历史或重新建立干净历史；
+5. 不把“后来删掉了”视为安全。
 
-如果真实凭据曾进入任何 commit，即使之后已删除，也按“已经泄露”处理：
+## 不要做的事情
 
-- 立即停止继续发布；
-- 不在聊天、日志或报告里回显秘密值；需要核对时优先使用布尔比较、哈希或脱敏结果；
-- 先轮换/撤销相关凭据；
-- 再清理/重写历史，或改用经过审计的干净公开历史；
-- 不能用“当前文件已经删掉”作为历史安全的依据。
+- 不要把业务逻辑复制到 `cmd`、TUI 或第二套服务实现中；
+- 不要让 `check_consistency` 冒充语义正确性证明；它只加载事实材料；
+- 不要把 internal capacity/估算值伪装成用户承诺的固定总章节数；
+- 不要盲重试可能已经产生副作用的写调用；
+- 不要扩大 HTTP surface 加管理后台、shell 或通用文件 API；
+- 不要弱化 `.gitignore`、`public-audit.py`、hooks 或 CI 以“让测试先过”。
 
-### Git 历史边界
+## 完成任务前检查
 
-- 不要把含私有历史的仓库 remote 改指向公开仓后直接 push。
-- 不要向公开仓 force-push 未经完整历史审计的旧分支、tag 或其他 ref。
-- 公开仓应只接收已经通过当前树审计和必要历史审计的内容。
-- 对任何不确定是否属于隐私/秘密的信息，默认不提交，并先向用户确认。
-
-这些规则优先于为了省事而执行的批量 `git add .`、历史迁移、Release 或自动发布操作。
+- 是否保持服务器无模型调用？
+- 是否保持路径隔离和鉴权边界？
+- 写路径是否正确处理 revision？
+- crash/retry 是否仍安全？
+- MCP/schema/磁盘格式变化是否有测试和文档？
+- `python scripts/check.py` 是否通过？
+- 高风险改动是否跑了 `--race --history`？
+- `git status` / diff 是否只包含预期内容？
+- 是否没有把隐私或真实凭据写入 Git 历史？

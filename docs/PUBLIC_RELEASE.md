@@ -141,16 +141,14 @@ novel-mcp token rotate --i-understand-this-invalidates-current-clients
 ## 每次发布前
 
 ```bash
-python scripts/public-audit.py
-go test -count=1 ./...
-go vet ./...
-git diff --check
+python scripts/check.py --history
 ```
 
-准备真正公开现有历史时，额外要求：
+任何时候准备导入外部 branch/tag/历史对象时，额外要求：
 
 ```bash
 python scripts/public-audit.py --history
 ```
 
-只有这个命令也 PASS，当前仓库才具备“直接改 Public”的条件。
+只有这个命令也 PASS，相关历史对象才具备进入当前 Public 仓库的基本条件；旧 Private archive
+目前已知不满足这一条件，因此不得导入。

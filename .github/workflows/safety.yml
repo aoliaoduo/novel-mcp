@@ -15,8 +15,7 @@ concurrency:
 
 jobs:
   public-tree-audit:
-    # 当前仓库仍是 private；未来切换 Public 时由 public 事件立刻启用。
-    # 私有阶段以本地 scripts/public-audit.py 为闸门，避免消耗 hosted runner。
+    # 公开仓每次 push / PR 都先扫描当前可发布树。
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
     steps:

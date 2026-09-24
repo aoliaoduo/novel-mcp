@@ -13,7 +13,7 @@ body:
     attributes:
       label: novel-mcp 版本
       description: 运行 `novel-mcp version`；这里只填版本号。
-      placeholder: v0.4.0
+      placeholder: vX.Y.Z
     validations:
       required: true
   - type: dropdown

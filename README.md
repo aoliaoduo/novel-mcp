@@ -1,7 +1,12 @@
 # novel-mcp
 
+[![safety](https://github.com/aoliaoduo/novel-mcp/actions/workflows/safety.yml/badge.svg)](https://github.com/aoliaoduo/novel-mcp/actions/workflows/safety.yml)
+
 供**网页 MCP 客户端**（网页版 AI、浏览器里的 Agent）调用的小说创作服务。服务器只做一件事：
 把小说工件、校验与断点恢复暴露成 MCP 工具；**创作推理由网页 AI 完成，这里不调用任何模型**。
+
+它适合把“长篇小说写作”拆成可恢复、可验证、可并发保护的 MCP 工作流：AI 负责想和写，
+novel-mcp 负责记住事实、守住状态、拒绝冲突，并在进程或会话中断后从磁盘继续。
 
 核心逻辑来自 [ainovel-cli](UPSTREAM.md)（Apache-2.0）的工件层：原子写入、checkpoint、
 PendingCommit Saga、阶段守卫原样复用，没有第二套业务实现，也没有后台写作引擎。
@@ -11,11 +16,26 @@ PendingCommit Saga、阶段守卫原样复用，没有第二套业务实现，�
    （推理、语义判断）           （事实、校验、持久化）
 ```
 
+### 项目入口
+
+| 你想做什么 | 从这里开始 |
+| --- | --- |
+| 直接使用 | [快速开始](#1-快速开始) |
+| 理解系统设计 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| 参与开发 | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| 让编码 AI/Agent 修改项目 | [AGENTS.md](AGENTS.md) |
+| 查看安全模型 | [SECURITY.md](SECURITY.md) |
+| 了解上游来源 | [UPSTREAM.md](UPSTREAM.md) |
+| 发布版本 | [docs/RELEASING.md](docs/RELEASING.md) |
+
+编码 Agent 不需要先通读整份 README：先读 `AGENTS.md`，再按任务进入对应目录；
+`internal/server`、`internal/store`、`internal/tools` 还有局部 `AGENTS.md`。
+
 ## 1. 快速开始
 
 ### 普通用户：直接下载 Release
 
-不需要安装 Go，也不需要下载源码。到仓库的 **GitHub Releases** 下载与你系统匹配的正式资产：
+如果仓库的 **GitHub Releases** 已有正式版本，不需要安装 Go，也不需要下载源码，直接下载与你系统匹配的资产：
 
 - Windows x64：优先下载 `novel-mcp-vX.Y.Z-windows-amd64.exe`，下载后直接双击；
 - Windows portable：下载 `novel-mcp-vX.Y.Z-windows-amd64.zip`，解压后双击 `novel-mcp.exe`；
@@ -25,6 +45,9 @@ PendingCommit Saga、阶段守卫原样复用，没有第二套业务实现，�
 每个正式 Release 都附 `SHA256SUMS.txt` 与 `RELEASE-MANIFEST.json`。portable 包内还有
 `START_HERE.txt`、README 和 LICENSE。当前 Windows/macOS 二进制**尚未代码签名**，系统可能提示未知发布者；
 请只从本仓库 Release 下载，并在需要时先核对 SHA-256。
+
+如果 Releases 页面暂时为空，表示当前公开历史还没有发布正式版本；不要从旧 Private archive
+搬运历史 Release，开发者可按下节从源码构建。
 
 Windows 第一次双击后只需要选一次“网页/云端 AI 客户端”或“仅本机 AI 客户端”；服务就绪后按
 **`C`** 复制完整 MCP 配置，粘进 AI 客户端即可。
@@ -392,6 +415,15 @@ https://<主机名>.<你的tailnet>.ts.net/mcp/<64位路由>
 
 ## 6. 测试
 
+日常开发优先跑统一入口：
+
+```bash
+python scripts/check.py
+python scripts/check.py --race --history   # 高风险/发布前改动
+```
+
+需要只跑某一层时再直接使用 Go 测试命令：
+
 ```bash
 go test ./...                    # 单元 + 进程内端到端（11 个上游包 + internal/server）
 NOVEL_MCP_E2E=1 go test ./internal/server -run TestEndToEnd -v
@@ -404,7 +436,7 @@ NOVEL_MCP_TS_E2E=1 go test ./internal/server -run TestTypeScriptSDKCurrentProtoc
                                  # 可选：起真二进制，用官方 TypeScript SDK v2 + 当前协议做第二实现黑盒验证；
                                  # 覆盖 tools/prompts/resources/completion；依赖只装进 gitignore 的 .local
 
-python scripts/public-audit.py   # 检查当前可发布文件是否混入凭据、个人路径/邮箱或私有主机名
+python scripts/public-audit.py   # 只跑当前可发布树隐私审计
 ```
 
 `internal/server` 测试 tools 的 output schema、Prompts 与 Resources 契约。`scripts/mcp-ts-smoke.mjs` 也可直接
@@ -420,6 +452,5 @@ python scripts/public-audit.py   # 检查当前可发布文件是否混入凭据
 revision 删除，或停服后手动清理 `~/.novel-mcp/projects/smoke-*`。
 
 安全模型与威胁边界见 [SECURITY.md](SECURITY.md)；与上游的关系见 [UPSTREAM.md](UPSTREAM.md)。
-未来公开仓库前的历史清洗、隐私检查与 GitHub 安全设置见
-[docs/PUBLIC_RELEASE.md](docs/PUBLIC_RELEASE.md)。不要在 `public-audit --history` 通过前直接把
-现有私有仓库切成 Public。
+公开仓库的 Git 隐私门禁、旧 Private archive 边界与历史审计见
+[docs/PUBLIC_RELEASE.md](docs/PUBLIC_RELEASE.md)。

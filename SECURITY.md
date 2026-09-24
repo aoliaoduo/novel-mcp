@@ -87,12 +87,11 @@ Resource Metadata，以及对该授权服务器签发 token 的 issuer/audience/
 报告问题请附：`novel-mcp version`、`/healthz` 的响应体（只有三个字段）、以及能重现的最小
 调用序列（**不要**附上 URL、Bearer 或完整的 `credentials.json`）。
 
-## 6. 仓库公开与漏洞报告隐私
+## 6. 公开仓库与漏洞报告隐私
 
 MCP route 与 Bearer 都按**凭据**处理，不允许出现在源码、测试 fixture、Issue、Actions log、
-截图或 Release notes 中。仓库一旦公开，Git 历史、旧 tag、提交作者元数据和曾经提交后又删除的
-内容都会成为公开面的一部分，因此“当前文件里已经没有秘密”并不足够。公开前必须按
-[docs/PUBLIC_RELEASE.md](docs/PUBLIC_RELEASE.md) 执行完整检查，尤其是：
+截图或 Release notes 中。本仓库已经公开，因此 Git 历史、tag、提交作者元数据和曾经提交后又删除的
+内容都属于公开面；“当前文件里已经没有秘密”并不足够。每次提交/推送与 CI 都应保持以下审计通过：
 
 ```bash
 python scripts/public-audit.py
@@ -102,8 +101,8 @@ python scripts/public-audit.py --history
 任何真实访问凭据只要进入过 Git 历史，就按已泄露处理：先轮换/撤销，再处理历史；不要
 依赖删除文件、revert、`.gitignore` 或 `.mailmap` 来“隐藏”旧值。
 
-凭据轮换只能撤销访问权，不能删除历史里的个人邮箱、本机路径、主机名或旧 secret 文本；这些仍
-必须在公开前从将要公开的 Git 对象库中清除。全历史审计不通过时，**不要直接修改仓库 Visibility**。
+凭据轮换只能撤销访问权，不能删除历史里的个人邮箱、本机路径、主机名或旧 secret 文本。
+旧 Private archive 已知含这些历史痕迹，因此它的 branch/tag/commit/Release **不得导入本公开仓库**。
 
 安全问题不要附带真实 URL、Bearer、`credentials.json`、私有小说内容、本机绝对路径或
 内部网络主机名。仓库公开后，优先使用 GitHub 的 Private vulnerability reporting / Security

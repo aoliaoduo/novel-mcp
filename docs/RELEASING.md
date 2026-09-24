@@ -16,10 +16,7 @@ novel-mcp 的正式分发由 Git tag 驱动。Release workflow 与本地使用�
 在提交版本号之后、打 tag 之前：
 
 ```bash
-python scripts/public-audit.py
-go test -count=1 ./...
-go vet ./...
-go test -race -count=1 ./...
+python scripts/check.py --race --history
 
 python scripts/build-release.py --out dist/release
 python scripts/verify-release.py dist/release

@@ -1,0 +1,11 @@
+# Default owner for public changes.
+* @aoliaoduo
+
+# Security- and release-sensitive surfaces.
+/SECURITY.md @aoliaoduo
+/.github/workflows/ @aoliaoduo
+/.githooks/ @aoliaoduo
+/scripts/public-audit.py @aoliaoduo
+/internal/server/ @aoliaoduo
+/internal/store/ @aoliaoduo
+/internal/tools/ @aoliaoduo

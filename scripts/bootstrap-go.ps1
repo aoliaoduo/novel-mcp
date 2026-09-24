@@ -26,17 +26,31 @@ $pinnedFile = "go$($pinned.ToString()).windows-amd64.zip"
 $pinnedSha256 = "a3911b5e0e1b1053f25ed0675f4c1c6aad1e2bfcf253df2b9be4caabd2edd95d"
 $pinnedSize = 78931360
 $mirrors = @(
-  "https://goproxy.cn/dl/$pinnedFile",
-  "https://go.dev/dl/$pinnedFile"
+  "https://go.dev/dl/$pinnedFile",
+  "https://dl.google.com/go/$pinnedFile"
 )
 $tcDir = Join-Path $repo ".toolchain"
 $tcExe = Join-Path $tcDir "go\bin\go.exe"
+$workDir = Join-Path $repo ".local\go-bootstrap"
+$proxy = $env:HTTPS_PROXY
+if (-not $proxy) { $proxy = $env:HTTP_PROXY }
+if (-not $proxy) { $proxy = $env:ALL_PROXY }
 
 function GoExeVersion($exe) {
   try { $out = (& $exe version 2>&1 | Out-String) } catch { return $null }
   $m = [regex]::Match($out, 'go([0-9.]+)')
   if (-not $m.Success) { return $null }
   return [version]$m.Groups[1].Value
+}
+
+function GoToolchainHealthy($exe) {
+  $v = GoExeVersion $exe
+  if (-not $v) { return $false }
+  try { $goroot = (& $exe env GOROOT 2>$null | Out-String).Trim() } catch { return $false }
+  if (-not $goroot) { return $false }
+  return ((Test-Path (Join-Path $goroot "src\runtime")) -and
+          (Test-Path (Join-Path $goroot "src\unsafe\unsafe.go")) -and
+          (Test-Path (Join-Path $goroot "pkg\tool")))
 }
 
 # 1. Resolve the pinned go: exact system match first, then vendored, else download.
@@ -54,23 +68,37 @@ if ($sysGo) {
 }
 if (-not $goExe -and (Test-Path $tcExe)) {
   $v = GoExeVersion $tcExe
-  if ($v -eq $pinned) {
+  if ($v -eq $pinned -and (GoToolchainHealthy $tcExe)) {
     $goExe = $tcExe
     $goCmd = ".\.toolchain\go\bin\go.exe"
     Write-Host ".toolchain go $v already present."
   } else {
-    Write-Host ".toolchain go ($v) differs from pinned ($pinned); re-downloading." -ForegroundColor Yellow
+    Write-Host ".toolchain is missing/incomplete or differs from pinned ($pinned); re-downloading." -ForegroundColor Yellow
     Remove-Item -Recurse -Force $tcDir
   }
 }
 if (-not $goExe) {
-  New-Item -ItemType Directory -Force $tcDir | Out-Null
-  $zip = Join-Path $tcDir $pinnedFile
+  if (Test-Path $workDir) { Remove-Item -Recurse -Force $workDir }
+  New-Item -ItemType Directory -Force $workDir | Out-Null
+  $zip = Join-Path $workDir $pinnedFile
+  $extractDir = Join-Path $workDir "extract"
   $done = $false
+  $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
   foreach ($url in $mirrors) {
     Write-Host "downloading $url ..."
     try {
-      Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 600
+      if ($curl) {
+        $curlArgs = @('-L', '--fail', '--silent', '--show-error', '--retry', '2',
+          '--connect-timeout', '20', '--max-time', '600', '-o', $zip)
+        if ($proxy) { $curlArgs += @('-x', $proxy) }
+        $curlArgs += $url
+        & $curl.Source @curlArgs
+        if ($LASTEXITCODE -ne 0) { throw "curl exited with code $LASTEXITCODE" }
+      } else {
+        $requestArgs = @{ Uri = $url; OutFile = $zip; UseBasicParsing = $true; TimeoutSec = 600 }
+        if ($proxy) { $requestArgs.Proxy = $proxy }
+        Invoke-WebRequest @requestArgs
+      }
       $done = $true
       break
     } catch {
@@ -82,13 +110,20 @@ if (-not $goExe) {
   if ($actualSize -ne $pinnedSize) { Write-Host "ERROR: size mismatch ($actualSize != $pinnedSize)" -ForegroundColor Red; exit 1 }
   $actualSha = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
   if ($actualSha -ne $pinnedSha256) { Write-Host "ERROR: sha256 mismatch" -ForegroundColor Red; exit 1 }
-  Expand-Archive -Path $zip -DestinationPath $tcDir -Force
-  Remove-Item $zip
+  New-Item -ItemType Directory -Force $extractDir | Out-Null
+  Expand-Archive -Path $zip -DestinationPath $extractDir -Force
+  $stagedExe = Join-Path $extractDir "go\bin\go.exe"
+  if (-not (GoToolchainHealthy $stagedExe)) {
+    Write-Host "ERROR: extracted toolchain is incomplete" -ForegroundColor Red
+    exit 1
+  }
+  New-Item -ItemType Directory -Force $tcDir | Out-Null
+  Move-Item -Path (Join-Path $extractDir "go") -Destination (Join-Path $tcDir "go")
   $manifest = [ordered]@{ version = "go$($pinned.ToString())"; filename = $pinnedFile; os = "windows";
     arch = "amd64"; sha256 = $pinnedSha256; size = $pinnedSize; kind = "archive" }
   [IO.File]::WriteAllText((Join-Path $tcDir "download.json"), ($manifest | ConvertTo-Json -Compress))
+  Remove-Item -Recurse -Force $workDir
   $v = GoExeVersion $tcExe
-  if (-not $v) { Write-Host "ERROR: extracted toolchain does not run" -ForegroundColor Red; exit 1 }
   $goExe = $tcExe
   $goCmd = ".\.toolchain\go\bin\go.exe"
   Write-Host "ready: .toolchain go $v"
