@@ -19,8 +19,18 @@
 
 1. 运行 `python scripts/public-audit.py`，必须 PASS。
 2. 检查 `git status`、`git diff` 和 `git diff --cached`，确认没有意外加入本机文件、运行数据或秘密值。
-3. 确认提交身份适合公开；需要隐藏邮箱时使用 GitHub noreply 地址。
+3. 确认提交身份适合公开；本仓库必须使用 GitHub noreply 地址，不要使用个人邮箱。
 4. 不得通过删除/弱化 `.gitignore`、`scripts/public-audit.py` 或 CI 安全检查来绕过审计。
+
+本仓库提供版本化 Git hooks。每个新 clone 首次开发前必须确认：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-commit` 会在 commit 前检查当前可发布树和提交邮箱；
+`.githooks/pre-push` 会在 push 前扫描完整可达 Git 历史。不要使用 `--no-verify`
+绕过这些 hooks，除非用户明确要求且已经人工完成等价安全审计。
 
 在准备公开历史、迁移仓库、创建 tag/Release 或执行可能让旧历史可见的操作前，还必须运行：
 

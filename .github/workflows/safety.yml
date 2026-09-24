@@ -5,12 +5,6 @@ on:
   pull_request:
   public:
   workflow_dispatch:
-    inputs:
-      full_history_audit:
-        description: "公开前：完整扫描 Git 历史与提交元数据（发现旧隐私/凭据会失败）"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -34,10 +28,9 @@ jobs:
         run: python3 scripts/public-audit.py
 
   publication-history-audit:
-    # 这是“切 Public 之前”人工触发的强门禁。当前私有历史已知仍含需要清理的
-    # 旧隐私痕迹，因此不放进普通 push CI，避免把预期失败变成持续红灯。
-    # public 事件也会触发它，作为误切 Public 后的最后报警线；这不是事前门禁替代品。
-    if: github.event_name == 'public' || (github.event_name == 'workflow_dispatch' && inputs.full_history_audit == true)
+    # 公开仓每次 push / PR 都扫完整可达历史。这样即使本地 hook 被绕过，
+    # “先提交秘密、后续 commit 再删除”的情况也不会只因为当前树干净而静默通过。
+    if: github.event.repository.private == false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout complete history

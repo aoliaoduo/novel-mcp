@@ -77,16 +77,22 @@ SAFE_TUNNEL_MARKERS = ("example", "xxxx", "abc.", "node.tail", "a.b.ts.net", "<"
 
 SENSITIVE_EXACT = {
     "credentials.json",
+    "credentials",
     "secrets.json",
     "secret.json",
     "config.json",
+    ".git-credentials",
     ".npmrc",
     ".pypirc",
     ".netrc",
     "id_rsa",
     "id_ed25519",
+    "id_ecdsa",
+    "id_dsa",
 }
-SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore")
+SENSITIVE_SUFFIXES = (
+    ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".ovpn"
+)
 
 
 def git(*args: str) -> str:
@@ -147,10 +153,23 @@ def scan_current() -> set[Finding]:
             findings.add(Finding("current", "sensitive-filename", rel))
         path = ROOT / rel
         try:
+            if path.is_symlink():
+                findings.add(Finding("current", "symlink-file", rel))
+                continue
+            if not path.is_file():
+                findings.add(Finding("current", "non-regular-file", rel))
+                continue
             if path.stat().st_size > 4 * 1024 * 1024:
+                findings.add(Finding("current", "large-unscanned-file", rel))
                 continue
             text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except UnicodeDecodeError:
+            # Fail closed: binary/non-UTF8 files can carry credentials, EXIF or
+            # other private metadata that this text scanner cannot inspect.
+            findings.add(Finding("current", "binary-unscanned-file", rel))
+            continue
+        except OSError:
+            findings.add(Finding("current", "unreadable-file", rel))
             continue
         findings |= scan_text("current", rel, text)
     return findings
@@ -183,6 +202,11 @@ def scan_history() -> set[Finding]:
             line_no = 0
             continue
         if raw.startswith(("+++", "---")):
+            continue
+        if raw.startswith("Binary files ") or raw.startswith("GIT binary patch"):
+            findings.add(Finding(
+                "history", "binary-unscanned-object", f"{commit[:12]}:{path}"
+            ))
             continue
         if raw.startswith(("+", "-")):
             line_no += 1

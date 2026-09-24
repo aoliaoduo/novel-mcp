@@ -1,6 +1,7 @@
 # 公开仓库前检查
 
-本仓库当前仍按**私有仓库**维护。未来公开时，不要直接把现有仓库可见性从 Private 切成 Public。
+本仓库现在是从经过审计的干净根历史创建的**公开仓库**。旧私有开发历史保留在单独的
+Private archive 中，不得重新合并、force-push 或导入到本仓库。
 
 原因不是当前代码树，而是 Git 历史本身也属于公开内容：删除文件、改掉示例、轮换令牌，都不会自动从旧 commit 中删除已经提交过的信息。
 
@@ -20,9 +21,8 @@
    python scripts/public-audit.py --history
    ```
 
-   也可以在 GitHub Actions 手工运行 `safety` workflow，并勾选 `full_history_audit`；该 job
-   会以 `fetch-depth: 0` 获取完整历史。`public` 事件也会自动执行同一历史审计，但那只是误切
-   Public 后的报警线，**不能**代替公开前的本地/手工检查。
+   GitHub Actions 的 `safety` workflow 在公开仓库的每次 push / pull request 都会以
+   `fetch-depth: 0` 执行同一完整历史审计，也可以手工重新触发。
 
 3. 所有曾进入 Git 历史的真实凭据都已轮换/撤销。
 4. 提交作者使用可公开身份；希望隐藏真实邮箱时使用 GitHub noreply 地址。
@@ -31,9 +31,9 @@
 
 审计脚本只输出类别与位置，不输出匹配到的秘密值。
 
-## 当前私有历史的已知阻断
+## 旧私有历史的已知阻断
 
-当前可发布树可以通过公开审计，但现有私有 Git 历史**尚不适合直接公开**。历史审计会故意失败，因为旧 commit 中存在以下类别：
+旧 Private archive 的 Git 历史**不适合公开或导入本仓库**。历史审计会故意失败，因为旧 commit 中存在以下类别：
 
 - 已轮换的真实 MCP 访问凭据；
 - 个人作者邮箱元数据；
@@ -42,7 +42,7 @@
 
 这些信息即使已经从当前文件删除，仍能从历史 commit 取回。
 
-因此，在历史审计变成 PASS 之前，**不要切换当前仓库可见性**。
+因此，不要把旧 archive 的 branch、tag、Release 或其他 ref 导入当前公开仓库。
 
 ## 推荐的公开方式：干净 public mirror
 
@@ -120,7 +120,7 @@ novel-mcp token rotate --i-understand-this-invalidates-current-clients
 
 轮换会使现有客户端配置失效，需要重新分发新的 URL/Bearer。
 
-## GitHub 公开时的仓库设置
+## GitHub 公开仓库设置
 
 公开当天至少检查：
 
@@ -128,15 +128,15 @@ novel-mcp token rotate --i-understand-this-invalidates-current-clients
 - Private vulnerability reporting / Security Advisories；
 - Dependabot alerts；
 - 默认 Actions workflow permissions 使用 read-only；
-- 对 `main` 启用 branch protection/ruleset，并要求 CI 通过；
+- 对 `main` 启用 branch protection，至少禁止 force-push 和删除；若团队采用 PR-only 流程，
+  再把 CI 设置为 required status checks；
 - Release 只从已验证 tag 构建；
 - Issues/PR 模板提醒不要粘贴 URL、Bearer、credentials、小说私有内容或本机路径。
 
 仓库内 CI 使用固定 commit SHA 引用 GitHub Actions，并显式声明 `permissions: contents: read`。
-当前仓库仍为 Private 时，`.github/workflows/safety.yml` 的 jobs 会主动跳过；仓库切换为
-Public 的 `public` 事件会立即启用当前树与完整历史审计，之后每次 push / pull request 都自动运行
-当前树审计与 Go 验证。私有阶段仍以本地 `python scripts/public-audit.py` 与 Go 测试结果为准；
-需要全历史复核时手工触发 `full_history_audit`。
+当前仓库是 Public，因此每次 push / pull request 都自动运行当前树审计与 Go 验证。
+完整历史审计同样每次运行。需要复核时可手工触发 `safety` workflow。本地 clone 还应启用 `.githooks`，让自定义
+隐私规则在内容进入远端之前就失败，而不是依赖 push 后的 CI 才报警。
 
 ## 每次发布前
 

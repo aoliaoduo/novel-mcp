@@ -4,6 +4,16 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.idea/
+.vscode/
+.fleet/
+.history/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
 
 # Build outputs
 dist/
@@ -17,12 +27,14 @@ data/
 credentials.json
 secrets.json
 config.json
+.git-credentials
 .novel-mcp/
 projects/
 *.pem
 *.key
 *.p12
 *.pfx
+*.ovpn
 .npmrc
 .pypirc
 .netrc

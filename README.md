@@ -31,6 +31,15 @@ Windows 第一次双击后只需要选一次“网页/云端 AI 客户端”或�
 
 ### 开发者：从源码构建
 
+新 clone 第一次开发前先启用仓库自带的隐私保护 hooks：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+这些 hooks 会在 commit 前检查当前可发布树和 GitHub noreply 提交邮箱，并在 push 前扫描完整
+Git 历史。不要用个人邮箱提交到这个公开仓库，也不要用 `--no-verify` 绕过隐私检查。
+
 先准备 Go 工具链（二选一；`go.mod` 里的 `go` 行是最低版本要求）：
 
 - 本机有 Go：`go version` 够新就直接用，下面命令里的 `go` 原样敲。
@@ -259,12 +268,13 @@ novel_context(chapter) → plan_chapter → draft_chapter → read_chapter(sourc
 * 单本上限 256 MiB / 20000 个文件；最多 100 个项目；请求体上限 4 MiB；并发 16。
 * 服务器不调用模型：断线后不会有任何"后台续写"。
 
-### 未来公开仓库
+### 公开仓库隐私安全
 
-仓库公开前还有一层与运行时安全不同的“源码发布安全”：当前工作树、完整 Git 历史、提交邮箱、
-tags、Releases 都必须先过隐私/secret 审计。开发时可运行 `python scripts/public-audit.py`；
-真正切 Public 前必须运行 `python scripts/public-audit.py --history`。完整流程见
-[`docs/PUBLIC_RELEASE.md`](docs/PUBLIC_RELEASE.md)。**历史审计未通过时不要直接把现有私有仓库切 Public。**
+本仓库已经公开，因此当前工作树、完整 Git 历史、提交邮箱、tags 和 Releases 都按永久公开面处理。
+开发时 `pre-commit` 会运行 `python scripts/public-audit.py`，`pre-push` 会运行
+`python scripts/public-audit.py --history`；GitHub Actions 也会在每次 push / PR 复查当前树与完整历史。
+旧 Private archive 的 branch、tag、Release 或其他 ref 不得导入本仓库。完整规则见
+[`AGENTS.md`](AGENTS.md) 与 [`docs/PUBLIC_RELEASE.md`](docs/PUBLIC_RELEASE.md)。
 
 ## 5. 启动与公网接入
 

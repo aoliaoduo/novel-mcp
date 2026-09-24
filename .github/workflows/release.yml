@@ -33,8 +33,10 @@ jobs:
           go-version: ${{ steps.go-version.outputs.version }}
           cache: true
 
-      - name: Audit publishable tree
-        run: python3 scripts/public-audit.py
+      - name: Audit publishable tree and history
+        run: |
+          python3 scripts/public-audit.py
+          python3 scripts/public-audit.py --history
 
       - name: Verify Go code
         run: |
