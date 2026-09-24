@@ -110,8 +110,13 @@ if (-not $goExe) {
   if ($actualSize -ne $pinnedSize) { Write-Host "ERROR: size mismatch ($actualSize != $pinnedSize)" -ForegroundColor Red; exit 1 }
   $actualSha = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
   if ($actualSha -ne $pinnedSha256) { Write-Host "ERROR: sha256 mismatch" -ForegroundColor Red; exit 1 }
-  New-Item -ItemType Directory -Force $extractDir | Out-Null
-  Expand-Archive -Path $zip -DestinationPath $extractDir -Force
+  # Avoid PowerShell's Expand-Archive progress UI. Windows PowerShell 5.1 can
+  # throw IndexOutOfRangeException from Write-Progress when invoked by a
+  # non-interactive host (CI/Agent shells), even though the archive is valid.
+  # ZipFile performs the same extraction without depending on host UI state.
+  if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [IO.Compression.ZipFile]::ExtractToDirectory($zip, $extractDir)
   $stagedExe = Join-Path $extractDir "go\bin\go.exe"
   if (-not (GoToolchainHealthy $stagedExe)) {
     Write-Host "ERROR: extracted toolchain is incomplete" -ForegroundColor Red

@@ -3,6 +3,13 @@
 本文件记录 novel-mcp 的公开发行版本。公开仓库从 `v0.6.0` 开始使用干净 Git 历史；
 旧 Private archive 的 tag、Release 与提交历史不导入本仓库。
 
+## [Unreleased]
+
+### Fixed
+
+- Windows Go bootstrap 改用 .NET `ZipFile` 解压，避免 Windows PowerShell 5.1 在非交互式
+  Agent/CI 宿主中由 `Expand-Archive` / `Write-Progress` 触发异常。
+
 ## [0.6.0] - 2026-09-24
 
 首个公开发行版。
