@@ -107,6 +107,39 @@ def artifact(path: Path) -> Artifact:
     return Artifact(path=path, sha256=sha256(path), size=path.stat().st_size)
 
 
+def is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def prepare_output_dir(path: Path) -> None:
+    root = ROOT.resolve()
+    path = path.resolve()
+    if path == root or is_within(root, path):
+        raise SystemExit("refusing release output at the repository root or one of its ancestors")
+    if path.exists():
+        if not path.is_dir():
+            raise SystemExit(f"release output exists and is not a directory: {path}")
+        allowed = {"RELEASE-MANIFEST.json", "SHA256SUMS.txt"}
+        unknown = []
+        for item in path.iterdir():
+            generated = item.is_file() and (
+                item.name in allowed
+                or (item.name.startswith("novel-mcp-v") and item.name.endswith((".zip", ".tar.gz", ".exe")))
+            )
+            if not generated:
+                unknown.append(item.name)
+        if unknown:
+            raise SystemExit(
+                f"refusing to clear release output containing non-release files: {sorted(unknown)}"
+            )
+        shutil.rmtree(path)
+    path.mkdir(parents=True, exist_ok=True)
+
+
 def start_here(goos: str, version: str) -> str:
     common = f"""novel-mcp v{version}
 
@@ -267,9 +300,7 @@ def main() -> int:
     commit = git_commit()
     epoch = git_commit_epoch()
     out_dir = (ROOT / args.out).resolve()
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    prepare_output_dir(out_dir)
 
     with tempfile.TemporaryDirectory(prefix="novel-mcp-release-") as tmp:
         staging = Path(tmp)
@@ -284,9 +315,6 @@ def main() -> int:
             files = package_files(binary, goos, version)
             base = f"novel-mcp-v{version}-{goos}-{goarch}"
             if goos == "windows":
-                raw_exe = out_dir / f"{base}.exe"
-                shutil.copyfile(binary, raw_exe)
-                produced.append(artifact(raw_exe))
                 archive = out_dir / f"{base}.zip"
                 write_zip(archive, files, epoch)
             else:

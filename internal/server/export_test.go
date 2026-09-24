@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -103,5 +105,18 @@ func TestExportRangeLimit(t *testing.T) {
 	_, err := p.Call(context.Background(), "limit-book", "export_book", "", map[string]any{"from_chapter": 1, "to_chapter": 51})
 	if err == nil || !strings.Contains(err.Error(), "每次导出 1-50 章") {
 		t.Fatalf("超限应报错，实得 %v", err)
+	}
+}
+
+func TestExportRejectsOversizeFinalBeforeRendering(t *testing.T) {
+	p := newProjects(t)
+	seedExportBook(t, p, "oversize-book")
+	path := filepath.Join(p.dir("oversize-book"), "chapters", "01.md")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", maxExportBytes+1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := p.Call(context.Background(), "oversize-book", "export_book", "", map[string]any{"from_chapter": 1, "to_chapter": 1})
+	if err == nil || !strings.Contains(err.Error(), "导出超过") {
+		t.Fatalf("oversize export should fail before rendering, got %v", err)
 	}
 }

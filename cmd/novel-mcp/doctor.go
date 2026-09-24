@@ -115,7 +115,11 @@ func buildDoctorReport(c Config, configPresent, deep bool, configLoadErr ...erro
 	}
 
 	if public.ProbeRunning(c.Port) {
-		r.add("service", "ok", "本机 healthz 可达，服务正在运行", "")
+		if info, loadErr := public.LoadConnection(c.Data); loadErr == nil && public.ProbeConnection(c.Port, info) {
+			r.add("service", "ok", "本机 healthz 可达，且运行实例与当前数据目录凭据一致", "")
+		} else {
+			r.add("service", "warn", "当前端口有 novel-mcp，但无法确认它属于当前数据目录", "可能有另一份 portable 实例占用了同一端口；先关闭另一实例再启动当前目录")
+		}
 	} else {
 		r.add("service", "info", "当前端口没有检测到运行中的 novel-mcp", "需要使用时启动 local 或 public")
 	}

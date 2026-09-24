@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,16 +22,20 @@ func runLocalCommand(c Config, noTUI bool) error {
 	c.RequireBearer = ptr(true)
 	c.StartupMode = string(tui.StartupLocal)
 	if public.ProbeRunning(c.Port) {
-		if info, err := public.LoadConnection(c.Data); err == nil {
+		if info, err := public.LoadConnection(c.Data); err == nil && public.ProbeConnection(c.Port, info) {
 			public.PrintRunningCard(os.Stdout, info)
 			pauseIfInteractive()
 			return nil
 		}
 	}
+	reserved, reservedAddr, err := reserveServeListener(c)
+	if err != nil {
+		return err
+	}
+	defer reserved.Close()
 
 	obs := server.NewObserver()
 	var srv *http.Server
-	var ln net.Listener
 	var creds server.Credentials
 	interactive := tui.Wanted(noTUI, os.Stdout, os.Stdin)
 	if interactive {
@@ -48,7 +53,7 @@ func runLocalCommand(c Config, noTUI bool) error {
 				report(tui.StartupStep{ID: "config", Label: "连接配置", State: tui.StartupOK, Detail: filepath.Join(c.Data, "config.json")})
 				report(tui.StartupStep{ID: "service", Label: "MCP 服务", State: tui.StartupRunning, Detail: "监听 127.0.0.1"})
 				var err error
-				srv, ln, _, creds, err = prepareServe(c, obs)
+				srv, creds, err = prepareServeOnListener(c, obs, reserved, reservedAddr)
 				if err != nil {
 					return err
 				}
@@ -64,7 +69,7 @@ func runLocalCommand(c Config, noTUI bool) error {
 			return err
 		}
 		var err error
-		srv, ln, _, creds, err = prepareServe(c, obs)
+		srv, creds, err = prepareServeOnListener(c, obs, reserved, reservedAddr)
 		if err != nil {
 			return err
 		}
@@ -72,14 +77,14 @@ func runLocalCommand(c Config, noTUI bool) error {
 
 	origin := originOf(c)
 	if interactive {
-		return runServiceTUI(srv, ln, c.Data, tui.Connection{
+		return runServiceTUI(srv, reserved, c.Data, tui.Connection{
 			Version: public.Version, AccessURL: origin + "/mcp/" + creds.Route,
 			Bearer: creds.Bearer, HealthURL: origin + "/healthz",
 			Note: "仅本机可访问 · 不使用 Tailscale · 不暴露公网", DataDir: c.Data,
 		}, obs, nil)
 	}
 	fmt.Printf("novel-mcp 本机模式已就绪\n  接入地址 %s/mcp/%s\n  Bearer %s\n  停止：按 Ctrl+C\n", origin, creds.Route, creds.Bearer)
-	return serveLoop(srv, ln, nil)
+	return serveLoop(srv, reserved, nil)
 }
 
 type publicCommandOptions struct {
@@ -102,9 +107,12 @@ func (o publicCommandOptions) preflight(c Config, allow []string) public.Options
 }
 
 func runPublicCommand(c Config, opts publicCommandOptions) error {
+	if opts.servePort < 1 || opts.servePort > 65535 {
+		return errors.New("serve-port 必须在 1-65535")
+	}
 	// 双击第二次：已有实例在跑就直接展示连接卡，不走启动流程。
 	if !opts.dryRun && public.ProbeRunning(c.Port) {
-		if info, err := public.LoadConnection(c.Data); err == nil && info.PublicURL != "" {
+		if info, err := public.LoadConnection(c.Data); err == nil && info.PublicURL != "" && public.ProbeConnection(c.Port, info) {
 			public.PrintRunningCard(os.Stdout, info)
 			pauseIfInteractive()
 			return nil
@@ -114,9 +122,19 @@ func runPublicCommand(c Config, opts publicCommandOptions) error {
 	if len(allow) == 0 {
 		allow = public.DefaultAllowOrigins
 	}
+	var reserved net.Listener
+	var reservedAddr string
+	if !opts.dryRun {
+		var err error
+		reserved, reservedAddr, err = reserveServeListener(c)
+		if err != nil {
+			return err
+		}
+		defer reserved.Close()
+	}
 	interactive := tui.Wanted(opts.noTUI, os.Stdout, os.Stdin) && !opts.dryRun
 	if interactive {
-		return runPublicInteractive(c, allow, opts)
+		return runPublicInteractive(c, allow, opts, reserved, reservedAddr)
 	}
 
 	ready, err := public.Preflight(opts.preflight(c, allow))
@@ -132,18 +150,17 @@ func runPublicCommand(c Config, opts publicCommandOptions) error {
 		return err
 	}
 	obs := server.NewObserver()
-	srv, ln, _, creds, err := prepareServe(pc, obs)
+	srv, creds, err := prepareServeOnListener(pc, obs, reserved, reservedAddr)
 	if err != nil {
 		return err
 	}
 	public.PrintAccess(os.Stdout, ready, creds.Route, creds.Bearer)
-	return serveLoop(srv, ln, publicSmoke(ready, creds, opts.smoke))
+	return serveLoop(srv, reserved, publicSmoke(ready, creds, opts.smoke))
 }
 
-func runPublicInteractive(c Config, allow []string, opts publicCommandOptions) error {
+func runPublicInteractive(c Config, allow []string, opts publicCommandOptions, reserved net.Listener, reservedAddr string) error {
 	var ready *public.Ready
 	var srv *http.Server
-	var ln net.Listener
 	var creds server.Credentials
 	obs := server.NewObserver()
 	tunnelLabel := "Tailscale Funnel"
@@ -177,7 +194,7 @@ func runPublicInteractive(c Config, allow []string, opts publicCommandOptions) e
 				return err
 			}
 			report(tui.StartupStep{ID: "service", Label: "MCP 服务", State: tui.StartupRunning, Detail: "启动本机服务"})
-			srv, ln, _, creds, err = prepareServe(pc, obs)
+			srv, creds, err = prepareServeOnListener(pc, obs, reserved, reservedAddr)
 			if err != nil {
 				return err
 			}
@@ -188,10 +205,12 @@ func runPublicInteractive(c Config, allow []string, opts publicCommandOptions) e
 	if startErr != nil {
 		return &displayedError{err: startErr}
 	}
-	return runPublicTUI(srv, ln, c.Data, ready, creds, obs, opts.smoke)
+	return runPublicTUI(srv, reserved, c.Data, ready, creds, obs, opts.smoke)
 }
 
 func publicConfig(c Config, ready *public.Ready) Config {
+	c.Host = ready.Host
+	c.Port = ready.Port
 	c.PublicURL = ready.PublicURL
 	c.AllowOrigins = ready.AllowOrigins
 	c.StartupMode = string(tui.StartupPublic)

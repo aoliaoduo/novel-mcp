@@ -76,7 +76,7 @@ Dependabot 每周检查 Go modules 与 GitHub Actions。为了减少通知，pat
 major 更新仍保持独立 PR，便于定位兼容性问题。
 
 自动合并策略刻意保守：只有 **Dependabot 创建、版本变化可明确解析为纯 patch、并且完整
-`safety` CI 全部通过** 的 PR 才会自动 squash merge。若 `main` 已前进，自动化会先刷新
+`safety` CI 全部通过，而且 PR head 仍与这次 `safety` 实际检查的 commit 一致** 的 PR 才会自动 squash merge。若 `main` 已前进，自动化会先刷新
 Dependabot 分支，等待新一轮 CI，而不是用旧测试结果直接合并。
 
 以下情况保留人工处理：minor/major、预发布或无法可靠解析的版本变化，以及任何 CI 失败。

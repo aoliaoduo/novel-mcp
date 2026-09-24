@@ -359,7 +359,13 @@ func (p *Projects) Create(id, brief, style string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(entries) >= maxProjects {
+	projectCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() && validID(entry.Name()) {
+			projectCount++
+		}
+	}
+	if projectCount >= maxProjects {
 		return nil, coded("PROJECT_LIMIT", fmt.Sprintf("项目数已达上限 %d", maxProjects))
 	}
 	stage, err := os.MkdirTemp(p.root, ".creating-")
@@ -385,11 +391,11 @@ func (p *Projects) Create(id, brief, style string) (map[string]any, error) {
 	if err := writePrivateJSON(filepath.Join(stage, "project.json"), meta); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(stage, p.dir(id)); err != nil {
+	rev, err := revision(stage)
+	if err != nil {
 		return nil, err
 	}
-	rev, err := revision(p.dir(id))
-	if err != nil {
+	if err := os.Rename(stage, p.dir(id)); err != nil {
 		return nil, err
 	}
 	delete(p.books, id)
@@ -601,7 +607,17 @@ func (p *Projects) Call(ctx context.Context, id, name, expected string, args map
 	}
 	var result any
 	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, errors.New("上游工具返回了非法 JSON")
+		msg := "上游工具返回了非法 JSON"
+		if readOnly {
+			return failure(id, before, "NOVEL_TOOL_FAILED", msg, nil), nil
+		}
+		// 写工具已经返回 success，说明它可能已经落盘。此时若只抛传输错误，
+		// 客户端会看不到最新 revision，最容易把一次成功写入盲目重放。
+		after, revErr := revision(b.store.Dir())
+		if revErr != nil {
+			return nil, revErr
+		}
+		return failure(id, after, "NOVEL_TOOL_FAILED", msg, recovery("next_step", map[string]any{"project": id})), nil
 	}
 	if name == "novel_context" {
 		injectCompassHint(result)
@@ -653,6 +669,10 @@ func (p *Projects) status(b *book) (map[string]any, error) {
 	warnings := b.store.CheckConsistency()
 	if warnings == nil {
 		warnings = []string{}
+	} else {
+		for i := range warnings {
+			warnings[i] = p.safeText(warnings[i])
+		}
 	}
 	return map[string]any{
 		"info": b.info, "progress": progress, "foundation_missing": missing,
@@ -711,7 +731,17 @@ func (p *Projects) exportChapters(b *book, args map[string]any) (map[string]any,
 		return nil, fmt.Errorf("范围 %d..%d 内无已完成章节", from, to)
 	}
 	bodies := make(map[int]string, len(chapters))
+	var bodyBytes int64
 	for _, ch := range chapters {
+		finalPath := filepath.Join(b.store.Dir(), "chapters", fmt.Sprintf("%02d.md", ch))
+		if info, statErr := os.Stat(finalPath); statErr == nil {
+			bodyBytes += info.Size()
+			if bodyBytes > maxExportBytes {
+				return nil, fmt.Errorf("导出超过 %d 字节，请减少章节数", maxExportBytes)
+			}
+		} else if !os.IsNotExist(statErr) {
+			return nil, statErr
+		}
 		text, err := b.store.Drafts.LoadChapterText(ch)
 		if err != nil {
 			return nil, err
@@ -758,12 +788,15 @@ func (p *Projects) exportChapters(b *book, args map[string]any) (map[string]any,
 }
 
 // 宿主机路径会泄露用户名与目录布局，只出现在给运维看的日志里也不行。
-func (p *Projects) safeError(err error) string {
-	msg := err.Error()
+func (p *Projects) safeText(msg string) string {
 	if p.root != "" {
 		msg = strings.ReplaceAll(msg, p.root, "<projects>")
 	}
 	return strings.ToValidUTF8(msg, "\uFFFD")
+}
+
+func (p *Projects) safeError(err error) string {
+	return p.safeText(err.Error())
 }
 
 // errorEnvelope 给非工具路径的失败（协议层、项目加载）统一出口：

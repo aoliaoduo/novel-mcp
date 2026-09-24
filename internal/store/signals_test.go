@@ -55,3 +55,31 @@ func TestPendingCommitLifecycle(t *testing.T) {
 		t.Fatalf("expected pending commit cleared, got %+v", got)
 	}
 }
+
+func TestLoadAndClearSignalsConsumeOnce(t *testing.T) {
+	s := NewStore(t.TempDir())
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	commit := domain.CommitResult{Chapter: 1, Committed: true}
+	if err := s.Signals.SaveLastCommit(commit); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Signals.LoadAndClearLastCommit(); err != nil || got == nil || got.Chapter != 1 {
+		t.Fatalf("consume commit: got=%+v err=%v", got, err)
+	}
+	if got, err := s.Signals.LoadAndClearLastCommit(); err != nil || got != nil {
+		t.Fatalf("commit signal should be consumed once: got=%+v err=%v", got, err)
+	}
+
+	review := domain.ReviewEntry{Scope: "global"}
+	if err := s.Signals.SaveLastReview(review); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Signals.LoadAndClearLastReview(); err != nil || got == nil {
+		t.Fatalf("consume review: got=%+v err=%v", got, err)
+	}
+	if got, err := s.Signals.LoadAndClearLastReview(); err != nil || got != nil {
+		t.Fatalf("review signal should be consumed once: got=%+v err=%v", got, err)
+	}
+}

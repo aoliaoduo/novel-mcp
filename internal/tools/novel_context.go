@@ -48,13 +48,14 @@ type contextReads struct {
 	warnings []string
 	seen     map[string]struct{}
 	err      error
+	root     string
 }
 
 func (r *contextReads) warn(scope string, err error) {
 	if err == nil || os.IsNotExist(err) {
 		return
 	}
-	msg := fmt.Sprintf("%s 读取失败: %v", scope, err)
+	msg := diagnosticWarning(r.root, scope, err)
 	if r.seen == nil {
 		r.seen = make(map[string]struct{})
 	}
@@ -138,7 +139,7 @@ func (t *ContextTool) Execute(_ context.Context, args json.RawMessage) (json.Raw
 	}
 
 	result := make(map[string]any)
-	reads := &contextReads{}
+	reads := &contextReads{root: t.store.Dir()}
 
 	if a.Chapter > 0 {
 		// Writer 路径：加载全量基础数据 + 章节上下文

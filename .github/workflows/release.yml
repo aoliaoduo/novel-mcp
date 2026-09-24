@@ -76,8 +76,7 @@ jobs:
           notes=$(cat <<'EOF'
           ## 下载
 
-          - **Windows x64 最省事**：下载 `windows-amd64.exe` 结尾的文件，直接双击。
-          - Windows portable：下载 `windows-amd64.zip`，解压后双击 `novel-mcp.exe`。
+          - **Windows x64**：下载 `windows-amd64.zip`，解压后双击 `novel-mcp.exe`。请保留整个解压目录，配置、日志和小说都在其中的 `data/`。
           - Linux / macOS：下载对应架构的 `.tar.gz`，包内先看 `START_HERE.txt`。
           - `SHA256SUMS.txt` 用于校验下载；`RELEASE-MANIFEST.json` 记录构建 commit、Go 版本、大小和哈希。
 

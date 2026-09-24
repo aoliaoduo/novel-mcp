@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"novel-mcp/internal/atomicfile"
 	"novel-mcp/internal/public"
 	"novel-mcp/internal/server"
 	"novel-mcp/internal/store"
@@ -71,8 +72,7 @@ func defaults() Config {
 	return Config{Host: "127.0.0.1", Port: 8765, Data: defaultDataDir(), RequireBearer: &require}
 }
 
-// validate 把“公网暴露”做成需要三件齐备才能启动的配置：HTTPS 源、Bearer、
-// 明确的跨源白名单。少一件就只能回到回环地址。
+// validate 检查监听、认证与跨源配置是否自洽。
 func (c Config) validate(allowOpen bool) error {
 	ip := net.ParseIP(c.Host)
 	if ip == nil {
@@ -90,11 +90,8 @@ func (c Config) validate(allowOpen bool) error {
 		}
 	}
 	for _, o := range c.AllowOrigins {
-		if o == "*" {
-			continue
-		}
-		if !strings.HasPrefix(o, "http://") && !strings.HasPrefix(o, "https://") {
-			return fmt.Errorf("allow_origin 必须是带协议的源或 *: %s", o)
+		if _, err := normalizeOrigin(o); err != nil {
+			return err
 		}
 	}
 	bearer := c.RequireBearer == nil || *c.RequireBearer
@@ -126,8 +123,24 @@ func loadConfig(path string) (Config, error) {
 	if err := dec.Decode(&c); err != nil {
 		return c, fmt.Errorf("config %s: %w", path, err)
 	}
+	var trailing any
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("存在第二个 JSON 值")
+		}
+		return c, fmt.Errorf("config %s: 尾部存在额外内容: %w", path, err)
+	}
+	normalized, err := normalizeOrigins(c.AllowOrigins)
+	if err != nil {
+		return c, fmt.Errorf("config %s: %w", path, err)
+	}
+	c.AllowOrigins = normalized
 	if c.Data != "" && !filepath.IsAbs(c.Data) {
-		c.Data = filepath.Clean(filepath.Join(filepath.Dir(path), c.Data))
+		base, err := filepath.Abs(filepath.Dir(path))
+		if err != nil {
+			return c, fmt.Errorf("config %s: 解析 data 路径失败: %w", path, err)
+		}
+		c.Data = filepath.Clean(filepath.Join(base, c.Data))
 	}
 	// Portable bundle 可以整体移动。config.json 里可能还留着移动前的绝对 data 路径；
 	// 只要加载的是当前 bundle 自己的 config，就以 exe 旁的 data/ 为准。
@@ -166,7 +179,41 @@ func saveStartupConfig(c Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(c.Data, "config.json"), append(buf, '\n'), 0o600)
+	return atomicfile.Write(filepath.Join(c.Data, "config.json"), append(buf, '\n'), 0o600)
+}
+
+func normalizeOrigins(origins []string) ([]string, error) {
+	if origins == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(origins))
+	for _, raw := range origins {
+		normalized, err := normalizeOrigin(raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+func normalizeOrigin(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "*" {
+		return raw, nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.HasSuffix(u.Host, ":") ||
+		(u.Path != "" && u.Path != "/") || (!strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https")) {
+		return "", fmt.Errorf("allow_origin 必须是 http(s) 源或 *，且不能带路径、查询、片段或账号: %s", raw)
+	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return "", fmt.Errorf("allow_origin 端口必须在 1-65535: %s", raw)
+		}
+	}
+	return strings.ToLower(u.Scheme) + "://" + u.Host, nil
 }
 
 func main() {
@@ -201,8 +248,11 @@ func pauseIfInteractive() {
 func run(argv []string) error {
 	if len(argv) == 0 {
 		dataDir := defaultDataDir()
+		configFile := filepath.Join(dataDir, "config.json")
+		_, configStatErr := os.Stat(configFile)
+		configExists := configStatErr == nil || !os.IsNotExist(configStatErr)
 		mode, ok := rememberedStartupMode(dataDir)
-		if !ok && tui.Wanted(false, os.Stdout, os.Stdin) {
+		if !ok && !configExists && tui.Wanted(false, os.Stdout, os.Stdin) {
 			chosen, err := tui.ChooseStartupMode(tui.StartupChoiceOptions{})
 			if err != nil {
 				return err
@@ -217,8 +267,10 @@ func run(argv []string) error {
 			cmd = "local"
 		}
 		argv = []string{cmd}
-		if ok {
-			argv = append(argv, "--config", filepath.Join(dataDir, "config.json"))
+		if ok || configExists {
+			// 已有配置即使损坏或缺 startup_mode，也交给严格加载器处理。
+			// 不能把“记不住启动模式”误当成“没有配置”后静默覆盖。
+			argv = append(argv, "--config", configFile)
 		}
 	}
 	if argv[0] == "help" || argv[0] == "-h" || argv[0] == "--help" {
@@ -308,7 +360,11 @@ func run(argv []string) error {
 		c.PublicURL = *publicURL
 	}
 	if len(origins) > 0 {
-		c.AllowOrigins = origins
+		normalized, err := normalizeOrigins(origins)
+		if err != nil {
+			return &usageError{err: err}
+		}
+		c.AllowOrigins = normalized
 	}
 	// 显式给了 --bearer 就以它为准；否则保留配置文件的值；两处都没写时默认开启。
 	if flagSet(fs, "bearer") {
@@ -316,6 +372,14 @@ func run(argv []string) error {
 	}
 	if c.RequireBearer == nil {
 		c.RequireBearer = ptr(true)
+	}
+	// local/public 是产品级启动模式，服务本体始终只监听回环；只有低层 serve
+	// 才尊重显式 --host。这样旧配置里的 0.0.0.0 不会意外旁路 Tailscale。
+	if cmd == "local" || cmd == "public" {
+		if flagSet(fs, "host") && *host != "127.0.0.1" {
+			return &usageError{err: errors.New("local/public 固定监听 127.0.0.1；需要自定义监听地址请使用 serve")}
+		}
+		c.Host = "127.0.0.1"
 	}
 	credsFile := filepath.Join(c.Data, "credentials.json")
 	// doctor 的职责之一就是解释坏配置，所以它必须能在配置未通过启动校验时运行。
@@ -365,7 +429,7 @@ func run(argv []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("已轮换。旧 URL 立刻失效；重启 serve 后，只把新 URL 交给仍需要访问的客户端。")
+		fmt.Println("已轮换。旧 URL 立刻失效；运行中的服务会立即使用新凭据，无需重启。只把新 URL 交给仍需要访问的客户端。")
 		return nil
 	case "serve":
 		if err := c.validate(*allowOpen); err != nil {
@@ -397,26 +461,48 @@ func run(argv []string) error {
 }
 
 // prepareServe 完成 serve 的全部准备：数据目录、调用日志、凭据、projects、监听、handler。
-// serve/local/public 共用；obs 传 nil 时也会创建基础 Observer，以保证持久调用日志始终开启。
+func reserveServeListener(c Config) (net.Listener, string, error) {
+	addr := net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, "", fmt.Errorf("监听 %s 失败（端口可能已被其他程序占用）: %w", addr, err)
+	}
+	return ln, addr, nil
+}
+
+// serve/local/public 共用；先占住监听端口，再初始化数据与凭据，避免启动失败前产生
+// “看似可用”的本机状态。public 还会更早预占端口，确保 Funnel 不会代理到别的进程。
 func prepareServe(c Config, obs *server.Observer) (srv *http.Server, ln net.Listener, addr string, creds server.Credentials, err error) {
+	ln, addr, err = reserveServeListener(c)
+	if err != nil {
+		return nil, nil, "", server.Credentials{}, err
+	}
+	srv, creds, err = prepareServeOnListener(c, obs, ln, addr)
+	if err != nil {
+		_ = ln.Close()
+		return nil, nil, "", server.Credentials{}, err
+	}
+	return srv, ln, addr, creds, nil
+}
+
+func prepareServeOnListener(c Config, obs *server.Observer, ln net.Listener, addr string) (srv *http.Server, creds server.Credentials, err error) {
 	credsFile := filepath.Join(c.Data, "credentials.json")
 	if err = os.MkdirAll(c.Data, 0o700); err != nil {
-		return nil, nil, "", server.Credentials{}, err
+		return nil, server.Credentials{}, err
 	}
 	if obs == nil {
 		obs = server.NewObserver()
 	}
 	if obs.CallLog, err = server.NewCallLog(server.CallLogPath(c.Data)); err != nil {
-		return nil, nil, "", server.Credentials{}, fmt.Errorf("初始化调用日志失败: %w", err)
+		return nil, server.Credentials{}, fmt.Errorf("初始化调用日志失败: %w", err)
 	}
 	if creds, err = server.WriteCredentials(credsFile, false); err != nil {
-		return nil, nil, "", server.Credentials{}, err
+		return nil, server.Credentials{}, err
 	}
 	projects, err := server.NewProjects(filepath.Join(c.Data, "projects"))
 	if err != nil {
-		return nil, nil, "", server.Credentials{}, err
+		return nil, server.Credentials{}, err
 	}
-	addr = net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
 	handler := server.NewHTTP(projects, server.HTTPOptions{
 		Credentials:   func() (server.Credentials, error) { return server.LoadCredentials(credsFile) },
 		Hosts:         hostAllowlist(c, addr),
@@ -424,12 +510,8 @@ func prepareServe(c Config, obs *server.Observer) (srv *http.Server, ln net.List
 		RequireBearer: *c.RequireBearer,
 		Observer:      obs,
 	})
-	if ln, err = net.Listen("tcp", addr); err != nil {
-		return nil, nil, "", server.Credentials{},
-			fmt.Errorf("监听 %s 失败（可能已有实例在跑：Get-Process novel-mcp | Stop-Process 先停掉它）: %w", addr, err)
-	}
 	srv = &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute, WriteTimeout: 2 * time.Minute, IdleTimeout: 2 * time.Minute}
-	return srv, ln, addr, creds, nil
+	return srv, creds, nil
 }
 
 // serveLoop 起 Serve 协程，先跑 afterStart（public 的 smoke），
@@ -571,9 +653,13 @@ func accessNote(r *public.Ready) string {
 	if r.Mode == "funnel" {
 		switch {
 		case r.PublicOk != nil && *r.PublicOk:
-			return "公网可达，仅 443（URL + Bearer 缺一不可）"
+			port := r.ServePort
+			if port <= 0 {
+				port = 443
+			}
+			return fmt.Sprintf("公网 DNS 可解析，HTTPS %d 已挂载（URL + Bearer 缺一不可）", port)
 		case r.PublicOk != nil && !*r.PublicOk:
-			return "公网 DNS 未发布（README 第 5 节有清单）"
+			return "公网 DNS 未发布（见 docs/CONNECTIVITY.zh-CN.md 的 Funnel DNS 排障）"
 		default:
 			return "公网 DNS 未检查（解析器不通）"
 		}
@@ -649,7 +735,7 @@ func originOf(c Config) string {
 // hostAllowlist 覆盖本机访问的常见写法与隧道源。只列精确 host:port：
 // 通配 Host 会让 DNS 重绑定直接过关。
 func hostAllowlist(c Config, addr string) []string {
-	hosts := []string{addr, net.JoinHostPort("localhost", strconv.Itoa(c.Port)), net.JoinHostPort("127.0.0.1", strconv.Itoa(c.Port)), net.JoinHostPort("[::1]", strconv.Itoa(c.Port))}
+	hosts := []string{addr, net.JoinHostPort("localhost", strconv.Itoa(c.Port)), net.JoinHostPort("127.0.0.1", strconv.Itoa(c.Port)), net.JoinHostPort("::1", strconv.Itoa(c.Port))}
 	if c.PublicURL != "" {
 		if u, err := url.Parse(c.PublicURL); err == nil {
 			hosts = append(hosts, u.Host)

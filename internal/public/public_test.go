@@ -1,6 +1,7 @@
 package public
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"novel-mcp/internal/server"
 )
@@ -51,19 +53,54 @@ func TestTailnetRecoveryHint(t *testing.T) {
 	}
 }
 
+func TestTailnetRecoveryHintsArePlatformSpecific(t *testing.T) {
+	st := TailStatus{BackendState: "NoState", Health: []string{"Tailscale is starting"}}
+	linux := tailnetRecoveryHintForOS(st, "linux")
+	if !strings.Contains(linux, "tailscaled") || strings.Contains(linux, "repair.cmd") {
+		t.Fatalf("linux hint leaked Windows recovery: %q", linux)
+	}
+	darwin := tailnetRecoveryHintForOS(st, "darwin")
+	if !strings.Contains(darwin, "Tailscale 应用") || strings.Contains(darwin, "repair.cmd") {
+		t.Fatalf("darwin hint leaked Windows recovery: %q", darwin)
+	}
+}
+
 func TestFunnelAlreadyOn(t *testing.T) {
 	on := "Funnel on\nhttps://node.tail123.ts.net -> http://127.0.0.1:8765 (tailnet only)"
-	if !FunnelAlreadyOn(on, 8765) {
+	if !FunnelAlreadyOn(on, 8765, 443) {
 		t.Fatal("should detect mounted funnel")
 	}
-	if FunnelAlreadyOn(strings.ToLower(on), 8765) == false {
+	if FunnelAlreadyOn(strings.ToLower(on), 8765, 443) == false {
 		t.Fatal("match must be case-insensitive like PowerShell -match")
 	}
-	if FunnelAlreadyOn(on, 9999) {
-		t.Fatal("wrong port must not match")
+	if FunnelAlreadyOn(on, 9999, 443) {
+		t.Fatal("wrong backend port must not match")
 	}
-	if FunnelAlreadyOn("no serve config", 8765) {
+	if FunnelAlreadyOn(on, 8765, 8443) {
+		t.Fatal("wrong HTTPS port must not match")
+	}
+	on8443 := "Funnel on\nhttps://node.tail123.ts.net:8443 -> http://127.0.0.1:8765"
+	if !FunnelAlreadyOn(on8443, 8765, 8443) {
+		t.Fatal("non-default HTTPS port should match")
+	}
+	if FunnelAlreadyOn("no serve config", 8765, 443) {
 		t.Fatal("empty status must not match")
+	}
+	multi := "Funnel on\nhttps://node.tail123.ts.net:8443 (Funnel on)\n|-- / proxy http://127.0.0.1:9999\nhttps://node.tail123.ts.net (Funnel on)\n|-- / proxy http://127.0.0.1:8765"
+	if FunnelAlreadyOn(multi, 8765, 8443) {
+		t.Fatal("must not pair an HTTPS port from one mapping with another mapping's backend")
+	}
+	if !FunnelAlreadyOn(multi, 8765, 443) {
+		t.Fatal("should match backend within its own mapping block")
+	}
+}
+
+func TestPublicBaseURLIncludesNonDefaultHTTPSPort(t *testing.T) {
+	if got := publicBaseURL("node.tail123.ts.net", 443); got != "https://node.tail123.ts.net" {
+		t.Fatalf("default URL = %q", got)
+	}
+	if got := publicBaseURL("node.tail123.ts.net", 8443); got != "https://node.tail123.ts.net:8443" {
+		t.Fatalf("custom-port URL = %q", got)
 	}
 }
 
@@ -120,6 +157,88 @@ func TestParseDoHResponse(t *testing.T) {
 	}
 	if _, _, err := parseDoHResponse([]byte(`{oops`)); err == nil {
 		t.Fatal("malformed must fail")
+	}
+}
+
+func TestQueryDoHRejectsHTTPErrorStatus(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"Status":3}`))
+	}))
+	defer ts.Close()
+	got := queryDoH(ts.Client(), ts.URL, "node.example")
+	if got.reached || got.published {
+		t.Fatalf("HTTP error must not count as a reachable DNS answer: %+v", got)
+	}
+}
+
+func TestCombineDoHResultsPrefersPublishedResolver(t *testing.T) {
+	ips, published, reachable := combineDoHResults(
+		dohResult{reached: true, published: false},
+		dohResult{ips: []string{"1.2.3.4"}, reached: true, published: true},
+	)
+	if !reachable || !published || len(ips) != 1 || ips[0] != "1.2.3.4" {
+		t.Fatalf("combined DoH result = %v %v %v", ips, published, reachable)
+	}
+}
+
+func TestSnippetDoesNotSplitUTF8(t *testing.T) {
+	if got := snippet("甲乙丙", 2); got != "甲乙…" {
+		t.Fatalf("snippet = %q", got)
+	}
+}
+
+func TestNoRedirectClientDoesNotFollow(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/from" {
+			http.Redirect(w, r, "/to", http.StatusFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	resp, err := noRedirectClient(time.Second).Get(ts.URL + "/from")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("redirect followed unexpectedly: %d", resp.StatusCode)
+	}
+}
+
+func TestProbeConnectionMatchesSavedCredentials(t *testing.T) {
+	route := strings.Repeat("a", 64)
+	bearer := strings.Repeat("b", 64)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mcp/"+route {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+bearer {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer ts.Close()
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ProbeConnection(port, ConnectionInfo{Route: route, Bearer: bearer}) {
+		t.Fatal("saved credentials should match running instance")
+	}
+	if ProbeConnection(port, ConnectionInfo{Route: route, Bearer: strings.Repeat("c", 64)}) {
+		t.Fatal("wrong bearer must not match running instance")
 	}
 }
 
@@ -203,6 +322,57 @@ func TestLoadConnectionLocalMode(t *testing.T) {
 	}
 	if info.PublicURL != "http://127.0.0.1:9876" || info.Route != want.Route || info.Bearer != want.Bearer || info.BearerOff {
 		t.Fatalf("local connection mismatch: %+v", info)
+	}
+}
+
+func TestLoadConnectionLocalIPv6URL(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := server.WriteCredentials(filepath.Join(dir, "credentials.json"), false); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"host":"::1","port":9876,"startup_mode":"local","require_bearer":true}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := LoadConnection(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.PublicURL != "http://[::1]:9876" {
+		t.Fatalf("IPv6 local URL = %q", info.PublicURL)
+	}
+}
+
+func TestLoadConnectionRejectsMalformedConfig(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := server.WriteCredentials(filepath.Join(dir, "credentials.json"), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConnection(dir); err == nil {
+		t.Fatal("malformed config must not yield a reusable connection card")
+	}
+}
+
+func TestLoadConnectionRejectsInvalidStoredEndpoint(t *testing.T) {
+	for name, cfg := range map[string]string{
+		"public bad scheme":  `{"public_url":"http://example.com","startup_mode":"public","require_bearer":true}`,
+		"local non-loopback": `{"host":"0.0.0.0","port":9876,"startup_mode":"local","require_bearer":true}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if _, err := server.WriteCredentials(filepath.Join(dir, "credentials.json"), false); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfg), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConnection(dir); err == nil {
+				t.Fatalf("invalid stored endpoint accepted: %s", cfg)
+			}
+		})
 	}
 }
 

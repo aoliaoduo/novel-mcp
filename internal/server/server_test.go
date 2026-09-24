@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +20,18 @@ import (
 type concurrentReadProbe struct {
 	entered chan<- struct{}
 	release <-chan struct{}
+}
+
+type malformedWriteProbe struct{ path string }
+
+func (t *malformedWriteProbe) Name() string           { return "malformed_write" }
+func (t *malformedWriteProbe) Description() string    { return "test malformed write result" }
+func (t *malformedWriteProbe) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (t *malformedWriteProbe) Execute(context.Context, json.RawMessage) (json.RawMessage, error) {
+	if err := os.WriteFile(t.path, []byte("written"), 0o600); err != nil {
+		return nil, err
+	}
+	return json.RawMessage(`{`), nil
 }
 
 func (t *concurrentReadProbe) Name() string                         { return "probe_read" }
@@ -88,6 +101,19 @@ func TestProjectIDsCannotAddressPaths(t *testing.T) {
 }
 
 // 未初始化的目录不能顺手套到别人头上。
+func TestProjectLimitIgnoresNonProjectEntries(t *testing.T) {
+	p := newProjects(t)
+	for i := 0; i < maxProjects; i++ {
+		name := filepath.Join(p.root, fmt.Sprintf(".creating-stale-%03d", i))
+		if err := os.Mkdir(name, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := p.Create("real-book", "测试需求", "default"); err != nil {
+		t.Fatalf("stale/non-project entries must not consume project quota: %v", err)
+	}
+}
+
 func TestUnknownProjectIsNotCreatedImplicitly(t *testing.T) {
 	p := newProjects(t)
 	if _, err := p.Call(context.Background(), "ghost", "project_status", "", nil); err == nil || !strings.Contains(err.Error(), "不存在") {
@@ -135,6 +161,32 @@ func TestConcurrentReadToolsShareBookLock(t *testing.T) {
 	}
 }
 
+func TestMalformedWriteResultReturnsLatestRevisionInsteadOfTransportError(t *testing.T) {
+	p := newProjects(t)
+	id := create(t, p, "malformed-write")
+	b, err := p.load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.tools["malformed_write"] = &malformedWriteProbe{path: filepath.Join(p.dir(id), "meta", "probe.txt")}
+	before := revisionOf(t, p, id)
+	out, err := p.Call(context.Background(), id, "malformed_write", before, nil)
+	if err != nil {
+		t.Fatalf("post-write encoding failure must stay in-band, got transport error: %v", err)
+	}
+	if out["revision"] == before {
+		t.Fatalf("write changed disk but returned stale revision: %+v", out)
+	}
+	errInfo := out["error"].(map[string]any)
+	if errInfo["code"] != "NOVEL_TOOL_FAILED" {
+		t.Fatalf("unexpected error envelope: %+v", errInfo)
+	}
+	recovery := errInfo["recovery"].(map[string]any)
+	if recovery["tool"] != "next_step" {
+		t.Fatalf("write-side internal failure should recover via next_step: %+v", errInfo)
+	}
+}
+
 func TestWarmCallStillRejectsCorruptProjectMetadata(t *testing.T) {
 	p := newProjects(t)
 	id := create(t, p, "damaged-meta")
@@ -147,6 +199,40 @@ func TestWarmCallStillRejectsCorruptProjectMetadata(t *testing.T) {
 	var ce *codedError
 	if !errors.As(err, &ce) || ce.code != "PROJECT_DAMAGED" {
 		t.Fatalf("warm Call 必须拒绝损坏 project.json，实得 %v", err)
+	}
+}
+
+func TestProjectStatusWarningsHideProjectRoot(t *testing.T) {
+	p := newProjects(t)
+	id := create(t, p, "status-redact")
+	b, err := p.load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress, err := b.store.Progress.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress.CompletedChapters = []int{1}
+	progress.CurrentChapter = 2
+	if err := b.store.Progress.Save(progress); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(p.dir(id), "chapters", "01.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := p.Call(context.Background(), id, "project_status", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := out["result"].(map[string]any)
+	warnings := result["warnings"].([]any)
+	if len(warnings) == 0 {
+		t.Fatal("expected consistency warning")
+	}
+	if strings.Contains(warnings[0].(string), p.root) {
+		t.Fatalf("project_status leaked project root: %q", warnings[0])
 	}
 }
 
@@ -371,7 +457,7 @@ func TestPublicURLAcceptsOnlyOrigins(t *testing.T) {
 			t.Errorf("%s 应通过: %v", ok, err)
 		}
 	}
-	for _, bad := range []string{"http://abc.ngrok.app", "https://abc.ngrok.app/mcp/leak", "https://user:pw@abc.ngrok.app", "https://abc.ngrok.app?x=1", "abc.ngrok.app", "https://abc.ngrok.app#f"} {
+	for _, bad := range []string{"http://abc.ngrok.app", "https://abc.ngrok.app/mcp/leak", "https://user:pw@abc.ngrok.app", "https://abc.ngrok.app?x=1", "abc.ngrok.app", "https://abc.ngrok.app#f", "https://:443", "https://abc.ngrok.app:", "https://abc.ngrok.app:0", "https://abc.ngrok.app:65536"} {
 		if _, err := ValidPublicURL(bad); err == nil {
 			t.Errorf("%s 应被拒", bad)
 		}

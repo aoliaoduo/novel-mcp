@@ -42,7 +42,6 @@ git push origin v0.6.0
 `.github/workflows/release.yml` 会在 tag push 后重新执行安全审计、Go cold/vet/race、
 官方 Go MCP SDK 真进程 E2E、官方 TypeScript MCP SDK v2 黑盒测试，然后生成并验证：
 
-- Windows amd64 裸 EXE（下载后可直接双击）；
 - Windows amd64 portable ZIP；
 - Linux amd64 / arm64 tar.gz；
 - macOS amd64 / arm64 tar.gz；

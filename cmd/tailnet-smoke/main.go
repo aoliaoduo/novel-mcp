@@ -55,13 +55,17 @@ func run() error {
 	if !strings.HasPrefix(base, "https://") {
 		fmt.Println("注意: 当前不是 https，浏览器端客户端会因混合内容被拦；仅同源/非浏览器客户端可用")
 	}
+	probeClient := &http.Client{
+		Timeout:       *timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+	}
 
 	// 反向验证：错路径必须 404，不能有重定向把客户端引到正确路径上。
-	if code := probe(base, "/mcp/"+strings.Repeat("0", 64)); code != 404 {
+	if code := probe(probeClient, base, "/mcp/"+strings.Repeat("0", 64)); code != 404 {
 		return fmt.Errorf("错误路由应 404，实得 %d", code)
 	}
 	ok("错误路由 404")
-	health, code := healthz(base)
+	health, code := healthz(probeClient, base)
 	if code != 200 || !strings.Contains(health, `"ok":true`) {
 		return fmt.Errorf("healthz 异常: %d %s", code, health)
 	}
@@ -243,18 +247,18 @@ func split(url string) (string, string, error) {
 	return base, route, nil
 }
 
-func probe(base, path string) int {
-	resp, err := http.Get(base + path)
+func probe(client *http.Client, base, path string) int {
+	resp, err := client.Get(base + path)
 	if err != nil {
 		return 0
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	return resp.StatusCode
 }
 
-func healthz(base string) (string, int) {
-	resp, err := http.Get(base + "/healthz")
+func healthz(client *http.Client, base string) (string, int) {
+	resp, err := client.Get(base + "/healthz")
 	if err != nil {
 		return "", 0
 	}
@@ -274,9 +278,14 @@ func (t bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func connect(base, route string) (*mcp.ClientSession, error) {
 	client := mcp.NewClient(&mcp.Implementation{Name: "tailnet-smoke", Version: "1.0.0"}, nil)
 	tr := &mcp.StreamableClientTransport{Endpoint: base + "/mcp/" + route}
-	if *bearer != "" {
-		tr.HTTPClient = &http.Client{Transport: bearerTransport{token: *bearer}, Timeout: *timeout}
+	httpClient := &http.Client{
+		Timeout:       *timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}
+	if *bearer != "" {
+		httpClient.Transport = bearerTransport{token: *bearer}
+	}
+	tr.HTTPClient = httpClient
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	return client.Connect(ctx, tr, nil)

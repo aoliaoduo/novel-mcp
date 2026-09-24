@@ -25,7 +25,7 @@ novel-mcp 把"能读写你磁盘上小说项目"的能力暴露成一条 URL。�
    安全边界，真正的访问控制依赖精确 Host、秘密 route 与 Bearer；需要收紧时仍可改成精确源列表。
 3. **路由路径**：`/mcp/<64hex>` 与配置里的值做常量时间比较。任何偏差——包括多一个查询串——
    都直接 404，且**不重定向**，不给"路径对不对"的可比对信号。`/healthz` 只回
-   `{"ok":true,"service":"novel-mcp","auth":"bearer|url-token"}`，不含任何配置、版本或路径。
+   `{"ok":true,"service":"novel-mcp","auth":"bearer|public-open"}`，不含任何配置、版本或路径。
 4. **Bearer**（`require_bearer`，默认开）：`Authorization: Bearer <64hex>` 同样常量时间比较，
    失败回 401 并带 `WWW-Authenticate`。
 

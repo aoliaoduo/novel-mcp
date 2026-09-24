@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -63,5 +66,40 @@ func TestVerifyProjectFindsCompletedChapterWithoutFinal(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected FINAL_MISSING, got %+v", issues)
+	}
+}
+
+func TestVerifyProjectRedactsHostProjectRoot(t *testing.T) {
+	p := newProjects(t)
+	id := create(t, p, "verify-redact")
+	b, err := p.load(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress, err := b.store.Progress.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress.CompletedChapters = []int{1}
+	progress.CurrentChapter = 2
+	if err := b.store.Progress.Save(progress); err != nil {
+		t.Fatal(err)
+	}
+	finalPath := filepath.Join(p.dir(id), "chapters", "01.md")
+	if err := os.MkdirAll(finalPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := p.Call(context.Background(), id, "verify_project", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := out["result"].(map[string]any)
+	for _, raw := range result["issues"].([]any) {
+		issue := raw.(map[string]any)
+		message, _ := issue["message"].(string)
+		if strings.Contains(message, p.root) {
+			t.Fatalf("verify_project leaked host root in %q", message)
+		}
 	}
 }

@@ -10,10 +10,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"novel-mcp/internal/atomicfile"
 )
 
 // Credentials 两项都是 256 bit 随机值：route 走 URL 路径，bearer 走请求头。
@@ -74,26 +76,12 @@ func WriteCredentials(file string, rotate bool) (Credentials, error) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return Credentials{}, err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(file), ".credentials-")
+	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return Credentials{}, err
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	data, _ := json.MarshalIndent(c, "", "  ")
 	data = append(data, '\n')
-	if err := tmp.Chmod(0o600); err == nil {
-		_, err = tmp.Write(data)
-	}
-	if err == nil {
-		err = tmp.Sync()
-	}
-	if closeErr := tmp.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return Credentials{}, err
-	}
-	return c, os.Rename(tmp.Name(), file)
+	return c, atomicfile.Write(file, data, 0o600)
 }
 
 type HTTPOptions struct {
@@ -112,8 +100,14 @@ func ValidPublicURL(raw string) (*url.URL, error) {
 	if err != nil {
 		return nil, err
 	}
-	if u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+	if !strings.EqualFold(u.Scheme, "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || strings.HasSuffix(u.Host, ":") {
 		return nil, errors.New("public_url 必须是 HTTPS 源，不含路径、查询、片段或账号")
+	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return nil, errors.New("public_url 端口必须在 1-65535")
+		}
 	}
 	return u, nil
 }
@@ -187,8 +181,8 @@ func NewHTTP(p *Projects, opts HTTPOptions) http.Handler {
 			http.Error(w, "credentials unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		// 先判路径再判 bearer：错 token 与不存在的路线都回 404，不给出可比对的信号。
-		// 不重定向、不回显路径，也不把 /mcp 单独开放。
+		// 先判路径再判 bearer：不知道 route 时统一只能得到 404；拿到正确 route 后，
+		// Bearer 按标准 HTTP 语义返回 401。不重定向、不回显路径，也不开放 /mcp。
 		if r.URL.RawQuery != "" || r.URL.Fragment != "" || !equalSecret(r.URL.Path, "/mcp/"+creds.Route) {
 			logHTTP("route_not_found", http.StatusNotFound)
 			http.NotFound(w, r)

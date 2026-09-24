@@ -15,9 +15,12 @@ import (
 // 不记录正文、route、Bearer、Authorization、完整请求体或自由文本值。
 // 文件内容是一行一个 JSON 对象，便于人和脚本直接 tail/grep。
 type CallLog struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	mu       sync.Mutex
+	maxBytes int64
 }
+
+const defaultCallLogMaxBytes int64 = 16 << 20
 
 func CallLogPath(dataDir string) string {
 	return filepath.Join(dataDir, "logs", "novel-mcp.log")
@@ -38,7 +41,7 @@ func NewCallLog(path string) (*CallLog, error) {
 	if err := f.Close(); err != nil {
 		return nil, err
 	}
-	return &CallLog{path: path}, nil
+	return &CallLog{path: path, maxBytes: defaultCallLogMaxBytes}, nil
 }
 
 func (l *CallLog) append(event map[string]any) {
@@ -52,6 +55,16 @@ func (l *CallLog) append(event map[string]any) {
 	raw = append(raw, '\n')
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.maxBytes > 0 {
+		if info, err := os.Stat(l.path); err == nil && info.Size()+int64(len(raw)) > l.maxBytes {
+			backup := l.path + ".1"
+			if err := os.Remove(backup); err != nil && !os.IsNotExist(err) {
+				slog.Warn("调用日志旧备份删除失败", "module", "server")
+			} else if err := os.Rename(l.path, backup); err != nil {
+				slog.Warn("调用日志轮换失败", "module", "server")
+			}
+		}
+	}
 	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err == nil {
 		_, err = f.Write(raw)
@@ -107,7 +120,7 @@ func (l *CallLog) Tool(tool, project string, args, result map[string]any, ok boo
 			errInfo["code"] = code
 		}
 		if message != "" {
-			errInfo["message"] = message
+			errInfo["message_chars"] = utf8.RuneCountInString(message)
 		}
 		if len(errInfo) > 0 {
 			rec["error"] = errInfo

@@ -201,7 +201,9 @@ func NewMCP(p *Projects, obs *Observer) *mcp.Server {
 					msg := shortErr(p.safeError(err))
 					obs.Record(name, idOf(args), false, latency, msg)
 					if obs != nil && obs.CallLog != nil {
-						obs.CallLog.Tool(name, idOf(args), args, nil, false, codeOf(err), msg, latency)
+						// bounded 属于协议输入校验；payload/errorEnvelope 也会以 INVALID_REQUEST
+						// 返回给客户端，持久日志必须记录同一个错误码。
+						obs.CallLog.Tool(name, idOf(args), args, nil, false, "INVALID_REQUEST", msg, latency)
 					}
 					return payload(nil, err, p)
 				}
@@ -303,15 +305,20 @@ func NewMCP(p *Projects, obs *Observer) *mcp.Server {
 		}
 		add(name, desc+" "+usage, envelope(tool.Schema(), mutate), !mutate,
 			func(ctx context.Context, args map[string]any) (map[string]any, error) {
-				// 先取 ID 再删键：删早了就是把空 ID 交给上游工具的地址解析。
 				id := idOf(args)
 				expected, _ := args["expected_revision"].(string)
 				if readTools[name] {
 					expected = ""
 				}
-				delete(args, "project")
-				delete(args, "expected_revision")
-				return p.Call(ctx, id, name, expected, args)
+				// 适配层只剥离传给核心工具的 MCP 包装字段，不修改 SDK 交进来的
+				// 原始参数 map；后面的 Observer/CallLog 仍需要 project 与参数形状。
+				coreArgs := make(map[string]any, len(args))
+				for key, value := range args {
+					if key != "project" && key != "expected_revision" {
+						coreArgs[key] = value
+					}
+				}
+				return p.Call(ctx, id, name, expected, coreArgs)
 			})
 	}
 	return server

@@ -30,7 +30,9 @@ func (s *SignalStore) LoadAndClearLastCommit() (*domain.CommitResult, error) {
 	if err != nil || !ok {
 		return nil, err
 	}
-	_ = s.io.RemoveFileUnlocked("meta/last_commit.json")
+	if err := s.io.RemoveFileUnlocked("meta/last_commit.json"); err != nil {
+		return nil, err
+	}
 	return &r, nil
 }
 
@@ -85,7 +87,9 @@ func (s *SignalStore) LoadAndClearLastReview() (*domain.ReviewEntry, error) {
 	if err != nil || !ok {
 		return nil, err
 	}
-	_ = s.io.RemoveFileUnlocked("meta/last_review.json")
+	if err := s.io.RemoveFileUnlocked("meta/last_review.json"); err != nil {
+		return nil, err
+	}
 	return &r, nil
 }
 

@@ -66,8 +66,8 @@ def remove_tree(path: Path) -> None:
 
 
 def ensure_safe_destination(root: Path, dest: Path, force: bool) -> None:
-    if dest == root or is_within(dest, root):
-        raise SystemExit("拒绝：输出目录必须位于源仓库之外，避免递归复制或误提交。")
+    if dest == root or is_within(dest, root) or is_within(root, dest):
+        raise SystemExit("拒绝：输出目录不能位于源仓库内部，也不能是源仓库的祖先目录。")
     if dest == Path(dest.anchor) or dest == Path.home().resolve():
         raise SystemExit("拒绝：输出目录过于宽泛。请指定一个新的专用目录。")
     if dest.exists():

@@ -13,14 +13,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"novel-mcp/internal/atomicfile"
 	"novel-mcp/internal/server"
 )
 
@@ -67,6 +72,7 @@ type Ready struct {
 	TailscaleExe   string
 	Host           string
 	Port           int
+	ServePort      int
 	DataDir        string
 	AllowOrigins   []string
 	RequireBearer  bool
@@ -109,6 +115,10 @@ func ParseTailStatus(data []byte) (TailStatus, error) {
 // tailnetRecoveryHint 把 Tailscale 状态压成用户可执行的下一步。
 // 不回显 DNSName/IP/本机路径，适合直接出现在错误页或复制给支持人员。
 func tailnetRecoveryHint(st TailStatus) string {
+	return tailnetRecoveryHintForOS(st, runtime.GOOS)
+}
+
+func tailnetRecoveryHintForOS(st TailStatus, goos string) string {
 	switch st.BackendState {
 	case "NeedsLogin":
 		return "Tailscale 尚未登录；打开 Tailscale 客户端完成登录后重试"
@@ -117,16 +127,84 @@ func tailnetRecoveryHint(st TailStatus) string {
 	}
 	health := strings.ToLower(strings.Join(st.Health, " "))
 	if st.BackendState == "NoState" || strings.Contains(health, "starting") || strings.Contains(health, "control") {
-		return "Tailscale 仍在启动或无法连接控制面；若使用 TUN/系统代理，请让 *.tailscale.com、*.tailscale.io、*.ts.net 直连，再重试；仍失败再运行 scripts\\tailscale-repair.cmd"
+		suffix := ""
+		switch goos {
+		case "windows":
+			suffix = "；仍失败再运行 scripts\\tailscale-repair.cmd"
+		case "linux":
+			suffix = "；仍失败请确认 tailscaled 正在运行且 tailscale status 可正常返回"
+		case "darwin":
+			suffix = "；仍失败请打开 Tailscale 应用确认节点已连接"
+		}
+		return "Tailscale 仍在启动或无法连接控制面；若使用 TUN/系统代理，请让 *.tailscale.com、*.tailscale.io、*.ts.net 直连，再重试" + suffix
 	}
-	return "Tailscale 未就绪；先打开桌面客户端确认节点为 Running，仍失败再运行 scripts\\tailscale-repair.cmd"
+	switch goos {
+	case "windows":
+		return "Tailscale 未就绪；先打开桌面客户端确认节点为 Running，仍失败再运行 scripts\\tailscale-repair.cmd"
+	case "linux":
+		return "Tailscale 未就绪；请确认 tailscaled 正在运行，并让 tailscale status 返回 Running 后重试"
+	case "darwin":
+		return "Tailscale 未就绪；请打开 Tailscale 应用确认节点为 Running 后重试"
+	default:
+		return "Tailscale 未就绪；请先让 tailscale status 返回 Running 后重试"
+	}
 }
 
-// FunnelAlreadyOn 判断 funnel status 输出是否已正确挂载到 127.0.0.1:port。
-// 与原 setup.ps1 的 $alreadyOn 同逻辑：本地已有正确挂载就不重跑，避免重启公网 DNS 发布。
-func FunnelAlreadyOn(output string, port int) bool {
-	return strings.Contains(strings.ToLower(output), "funnel on") &&
-		strings.Contains(output, fmt.Sprintf("127.0.0.1:%d", port))
+// FunnelAlreadyOn 判断 funnel status 输出是否已正确挂载到 127.0.0.1:port，
+// 且公网 HTTPS 端口与本次请求一致。
+func FunnelAlreadyOn(output string, port, servePort int) bool {
+	if !strings.Contains(strings.ToLower(output), "funnel on") {
+		return false
+	}
+	target := fmt.Sprintf("127.0.0.1:%d", port)
+	servePort = normalizedServePort(servePort)
+	currentPort := 0
+	for _, line := range strings.Split(output, "\n") {
+		if p, ok := httpsPortFromStatusLine(line); ok {
+			currentPort = p
+		}
+		if currentPort == servePort && strings.Contains(line, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func httpsPortFromStatusLine(line string) (int, bool) {
+	for _, field := range strings.Fields(line) {
+		field = strings.TrimRight(field, ",;)")
+		if !strings.HasPrefix(strings.ToLower(field), "https://") {
+			continue
+		}
+		u, err := url.Parse(field)
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		if p := u.Port(); p != "" {
+			n, err := strconv.Atoi(p)
+			if err != nil {
+				continue
+			}
+			return n, true
+		}
+		return 443, true
+	}
+	return 0, false
+}
+
+func normalizedServePort(port int) int {
+	if port <= 0 {
+		return 443
+	}
+	return port
+}
+
+func publicBaseURL(dns string, servePort int) string {
+	servePort = normalizedServePort(servePort)
+	if servePort == 443 {
+		return "https://" + dns
+	}
+	return fmt.Sprintf("https://%s:%d", dns, servePort)
 }
 
 // CheckConsent 与原 setup.ps1 第 2 步同语义：公网无 Bearer 必须明确同意。
@@ -194,8 +272,9 @@ func runCmdAsync(timeout time.Duration, name string, args ...string) <-chan cmdR
 
 func snippet(s string, n int) string {
 	s = strings.TrimSpace(s)
-	if len(s) > n {
-		return s[:n] + "…"
+	runes := []rune(s)
+	if n >= 0 && len(runes) > n {
+		return string(runes[:n]) + "…"
 	}
 	return s
 }
@@ -210,10 +289,13 @@ func resolveTailscale(override string) (string, error) {
 	if p, err := exec.LookPath("tailscale"); err == nil {
 		return p, nil
 	}
-	if _, err := os.Stat(defaultTailscaleExe); err == nil {
-		return defaultTailscaleExe, nil
+	if runtime.GOOS == "windows" {
+		if _, err := os.Stat(defaultTailscaleExe); err == nil {
+			return defaultTailscaleExe, nil
+		}
+		return "", errors.New("找不到 tailscale.exe；请先安装 Tailscale 桌面客户端")
 	}
-	return "", errors.New("找不到 tailscale.exe；请先安装 Tailscale 桌面客户端")
+	return "", errors.New("找不到 tailscale；请先安装 Tailscale CLI 并确保它在 PATH 中")
 }
 
 func resolveIPN(tsExe string) string {
@@ -231,6 +313,14 @@ func resolveIPN(tsExe string) string {
 func fileExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && !fi.IsDir()
+}
+
+func startDetached(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
 }
 
 func tailStatus(tsExe string) (TailStatus, string, error) {
@@ -282,11 +372,14 @@ func Preflight(o Options) (*Ready, error) {
 			state = "status 调用失败"
 		}
 		if o.DryRun {
-			warnLine(w, "tailnet", fmt.Sprintf("未就绪（%s）；正式跑会尝试拉起托盘进程", state))
+			warnLine(w, "tailnet", fmt.Sprintf("未就绪（%s）；正式运行前需要先让 Tailscale 进入 Running", state))
 			o.report("tailnet", "Tailscale", "warn", "未就绪："+state)
 			return dryReady(o, mode, tsExe), nil
 		}
 		if st.BackendState == "NeedsLogin" || st.BackendState == "NeedsMachineAuth" {
+			return nil, errors.New(tailnetRecoveryHint(st))
+		}
+		if runtime.GOOS != "windows" {
 			return nil, errors.New(tailnetRecoveryHint(st))
 		}
 		stepLine(w, Gray("…"), "tailnet", fmt.Sprintf("未就绪（%s），拉起托盘进程（免 UAC）…", state))
@@ -294,7 +387,9 @@ func Preflight(o Options) (*Ready, error) {
 		if ipn == "" {
 			return nil, fmt.Errorf("tailnet 未就绪且找不到 tailscale-ipn.exe；请双击 scripts\\tailscale-repair.cmd（会请求管理员权限）修一次再来")
 		}
-		_ = exec.Command(ipn).Start()
+		if err := startDetached(ipn); err != nil {
+			return nil, fmt.Errorf("启动 Tailscale 托盘进程失败: %w", err)
+		}
 		deadline := time.Now().Add(45 * time.Second)
 		for time.Now().Before(deadline) {
 			time.Sleep(3 * time.Second)
@@ -313,7 +408,7 @@ func Preflight(o Options) (*Ready, error) {
 	if st.DNSName == "" {
 		return nil, errors.New("本节点没有 MagicDNS 名；请到 tailnet 管理后台打开 MagicDNS")
 	}
-	publicURL := "https://" + st.DNSName
+	publicURL := publicBaseURL(st.DNSName, o.ServePort)
 	okLine(w, "tailnet", st.DNSName+" ("+firstIPv4(st.TailscaleIPs)+")")
 	o.report("tailnet", "Tailscale", "ok", st.DNSName)
 
@@ -341,8 +436,11 @@ func Preflight(o Options) (*Ready, error) {
 			"require_bearer": o.RequireBearer,
 			"startup_mode":   "public",
 		}
-		buf, _ := json.MarshalIndent(cfg, "", "  ")
-		if err := os.WriteFile(cfgPath, append(buf, '\n'), 0o600); err != nil {
+		buf, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		if err := atomicfile.Write(cfgPath, append(buf, '\n'), 0o600); err != nil {
 			return nil, err
 		}
 		okLine(w, "配置", cfgPath)
@@ -352,7 +450,7 @@ func Preflight(o Options) (*Ready, error) {
 	ready := &Ready{
 		Mode: mode, DNS: st.DNSName, MagicDNSSuffix: st.MagicDNSSuffix,
 		PublicURL: publicURL, TailscaleExe: tsExe,
-		Host: "127.0.0.1", Port: o.Port, DataDir: o.DataDir,
+		Host: "127.0.0.1", Port: o.Port, ServePort: o.ServePort, DataDir: o.DataDir,
 		AllowOrigins: o.AllowOrigins, RequireBearer: o.RequireBearer,
 		ConfigPath: cfgPath, StartedAt: time.Now(),
 	}
@@ -364,7 +462,7 @@ func Preflight(o Options) (*Ready, error) {
 		tunnelLabel = "Tailscale Funnel"
 	}
 	o.report("tunnel", tunnelLabel, "running", "连接到 "+target)
-	if o.Funnel && FunnelAlreadyOn(mr.out, o.Port) {
+	if o.Funnel && FunnelAlreadyOn(mr.out, o.Port, o.ServePort) {
 		okLine(w, "funnel", fmt.Sprintf("已挂载 %s，不动", target))
 		o.report("tunnel", tunnelLabel, "ok", "已挂载")
 	} else if o.DryRun {
@@ -380,12 +478,15 @@ func Preflight(o Options) (*Ready, error) {
 				strings.Contains(lower, "denied") || strings.Contains(lower, "failed to")
 		}
 		if failed {
-			warnLine(w, mode, "没干净地生效：先查 HTTPS 证书（管理后台 → DNS），开了等一分钟再跑")
-			o.report("tunnel", tunnelLabel, "warn", "挂载结果需要检查")
-		} else {
-			okLine(w, mode, fmt.Sprintf("已挂载 %s", target))
-			o.report("tunnel", tunnelLabel, "ok", "已挂载")
+			o.report("tunnel", tunnelLabel, "warn", "挂载失败")
+			detail := snippet(res, 240)
+			if detail == "" {
+				detail = fmt.Sprintf("退出码 %d", code)
+			}
+			return nil, fmt.Errorf("tailscale %s 挂载失败: %s", mode, detail)
 		}
+		okLine(w, mode, fmt.Sprintf("已挂载 %s", target))
+		o.report("tunnel", tunnelLabel, "ok", "已挂载")
 	}
 
 	// ---- 公网 DNS 检查（仅 funnel）----
@@ -414,7 +515,7 @@ func Preflight(o Options) (*Ready, error) {
 
 func dryReady(o Options, mode, tsExe string) *Ready {
 	return &Ready{DryRun: true, Mode: mode, TailscaleExe: tsExe,
-		Host: "127.0.0.1", Port: o.Port, DataDir: o.DataDir,
+		Host: "127.0.0.1", Port: o.Port, ServePort: o.ServePort, DataDir: o.DataDir,
 		AllowOrigins: o.AllowOrigins, RequireBearer: o.RequireBearer,
 		ConfigPath: filepath.Join(o.DataDir, "config.json"), StartedAt: time.Now()}
 }
@@ -457,6 +558,9 @@ func queryDoH(client *http.Client, base, dns string) dohResult {
 		return dohResult{}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return dohResult{}
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
 		return dohResult{}
@@ -468,19 +572,36 @@ func queryDoH(client *http.Client, base, dns string) dohResult {
 	return dohResult{ips: ips, published: published, reached: true}
 }
 
-// publicDNS 经公网 DoH 查 A 记录。双解析器并行，任取一个可达的结果
-// （查的是同一份公网 DNS，结论一致是常态）。返回（地址列表，可解析，解析器可达）。
+// publicDNS 经公网 DoH 查 A 记录。双解析器并行；只要任一可达解析器已经看到
+// 记录，就按已发布处理，避免传播窗口里先返回的 NXDOMAIN 抢答造成假阴性。
 func publicDNS(dns string) ([]string, bool, bool) {
 	client := &http.Client{Timeout: dohTimeout}
 	ch := make(chan dohResult, 2)
 	go func() { ch <- queryDoH(client, "https://1.1.1.1/dns-query", dns) }()
 	go func() { ch <- queryDoH(client, "https://dns.google/resolve", dns) }()
-	for i := 0; i < 2; i++ {
-		if r := <-ch; r.reached {
-			return r.ips, r.published, true
+	first := <-ch
+	if first.reached && first.published {
+		return first.ips, true, true
+	}
+	return combineDoHResults(first, <-ch)
+}
+
+func combineDoHResults(results ...dohResult) ([]string, bool, bool) {
+	reachable := false
+	var fallback []string
+	for _, r := range results {
+		if !r.reached {
+			continue
+		}
+		reachable = true
+		if r.published {
+			return r.ips, true, true
+		}
+		if fallback == nil {
+			fallback = r.ips
 		}
 	}
-	return nil, false, false
+	return fallback, false, reachable
 }
 
 // PrintAccess 打印最终的接入卡片。
@@ -498,19 +619,20 @@ func PrintAccess(w io.Writer, r *Ready, route, bearer string) {
 		fmt.Fprintf(w, "  %s    %s\n", Gray("健康检查"), r.PublicURL+"/healthz（浏览器打开验证）")
 	}
 	fmt.Fprintln(w, rule)
+	httpsPort := normalizedServePort(r.ServePort)
 	if r.Mode == "funnel" {
 		switch {
 		case r.PublicOk != nil && *r.PublicOk:
-			fmt.Fprintf(w, "  %s\n", Gray("公网可达，仅 443（URL + Bearer 缺一不可）"))
+			fmt.Fprintf(w, "  %s\n", Gray(fmt.Sprintf("公网 DNS 可解析，HTTPS %d 已挂载（URL + Bearer 缺一不可）", httpsPort)))
 		case r.PublicOk != nil && !*r.PublicOk:
-			fmt.Fprintf(w, "  %s\n", Gray("公网 DNS 未发布（README 第 5 节有清单）"))
+			fmt.Fprintf(w, "  %s\n", Gray("公网 DNS 未发布（见 docs/CONNECTIVITY.zh-CN.md 的 Funnel DNS 排障）"))
 		default:
 			fmt.Fprintf(w, "  %s\n", Gray("公网 DNS 未检查（解析器不通）"))
 		}
-		fmt.Fprintf(w, "  %s\n", Gray("撤销暴露：tailscale funnel --https=443 off"))
+		fmt.Fprintf(w, "  %s\n", Gray(fmt.Sprintf("撤销暴露：tailscale funnel --https=%d off", httpsPort)))
 	} else {
 		fmt.Fprintf(w, "  %s\n", Gray("仅 tailnet 可连（"+r.MagicDNSSuffix+"）；去掉 --tailnet-only 即发布公网"))
-		fmt.Fprintf(w, "  %s\n", Gray("撤销暴露：tailscale serve --https=443 off"))
+		fmt.Fprintf(w, "  %s\n", Gray(fmt.Sprintf("撤销暴露：tailscale serve --https=%d off", httpsPort)))
 	}
 	elapsed := ""
 	if !r.StartedAt.IsZero() {
@@ -542,13 +664,22 @@ func (t bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return base.RoundTrip(r)
 }
 
+func noRedirectClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 // LightSmoke 经公网 URL 做只读冒烟：错路由 404、healthz、MCP 握手、工具清单。
 // 失败只返回错误（调用方打印警示但继续服务），不写任何数据。
 func LightSmoke(out io.Writer, baseURL, route, bearer string, timeout time.Duration) error {
 	if len(route) != 64 {
 		return fmt.Errorf("route 长度应为 64，实得 %d", len(route))
 	}
-	plain := &http.Client{Timeout: timeout}
+	plain := noRedirectClient(timeout)
 	// 错路由必须 404
 	resp, err := plain.Get(baseURL + "/mcp/" + strings.Repeat("0", 64))
 	if err != nil {
@@ -575,7 +706,9 @@ func LightSmoke(out io.Writer, baseURL, route, bearer string, timeout time.Durat
 	// MCP 握手 + 工具清单
 	client := mcp.NewClient(&mcp.Implementation{Name: "novel-mcp-smoke", Version: "1.0.0"}, nil)
 	tr := &mcp.StreamableClientTransport{Endpoint: baseURL + "/mcp/" + route}
-	tr.HTTPClient = &http.Client{Transport: bearerTransport{token: bearer}, Timeout: timeout}
+	mcpHTTP := noRedirectClient(timeout)
+	mcpHTTP.Transport = bearerTransport{token: bearer}
+	tr.HTTPClient = mcpHTTP
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	session, err := client.Connect(ctx, tr, nil)
@@ -636,31 +769,45 @@ func LoadConnection(dataDir string) (ConnectionInfo, error) {
 		return info, err
 	}
 	info.Route, info.Bearer = creds.Route, creds.Bearer
-	if buf, err := os.ReadFile(filepath.Join(dataDir, "config.json")); err == nil {
-		var cfg struct {
-			PublicURL     string `json:"public_url"`
-			RequireBearer *bool  `json:"require_bearer"`
-			StartupMode   string `json:"startup_mode"`
-			Host          string `json:"host"`
-			Port          int    `json:"port"`
+	buf, err := os.ReadFile(filepath.Join(dataDir, "config.json"))
+	if err != nil {
+		return ConnectionInfo{}, err
+	}
+	var cfg struct {
+		PublicURL     string `json:"public_url"`
+		RequireBearer *bool  `json:"require_bearer"`
+		StartupMode   string `json:"startup_mode"`
+		Host          string `json:"host"`
+		Port          int    `json:"port"`
+	}
+	if err := json.Unmarshal(buf, &cfg); err != nil {
+		return ConnectionInfo{}, fmt.Errorf("读取连接配置失败: %w", err)
+	}
+	info.PublicURL = strings.TrimSuffix(cfg.PublicURL, "/")
+	if cfg.StartupMode == "local" {
+		host := cfg.Host
+		if host == "" {
+			host = "127.0.0.1"
 		}
-		if json.Unmarshal(buf, &cfg) == nil {
-			info.PublicURL = strings.TrimSuffix(cfg.PublicURL, "/")
-			if info.PublicURL == "" && cfg.StartupMode == "local" {
-				host := cfg.Host
-				if host == "" {
-					host = "127.0.0.1"
-				}
-				port := cfg.Port
-				if port == 0 {
-					port = 8765
-				}
-				info.PublicURL = fmt.Sprintf("http://%s:%d", host, port)
-			}
-			if cfg.RequireBearer != nil && !*cfg.RequireBearer {
-				info.BearerOff = true
-			}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			return ConnectionInfo{}, errors.New("local 连接配置的 host 必须是回环 IP")
 		}
+		port := cfg.Port
+		if port == 0 {
+			port = 8765
+		}
+		if port < 1 || port > 65535 {
+			return ConnectionInfo{}, errors.New("local 连接配置的 port 必须在 1-65535")
+		}
+		info.PublicURL = "http://" + net.JoinHostPort(host, strconv.Itoa(port))
+	} else if info.PublicURL == "" {
+		return ConnectionInfo{}, errors.New("连接配置缺少 public_url，且不是 local 模式")
+	} else if _, err := server.ValidPublicURL(info.PublicURL); err != nil {
+		return ConnectionInfo{}, fmt.Errorf("连接配置的 public_url 无效: %w", err)
+	}
+	if cfg.RequireBearer != nil && !*cfg.RequireBearer {
+		info.BearerOff = true
 	}
 	return info, nil
 }
@@ -668,7 +815,7 @@ func LoadConnection(dataDir string) (ConnectionInfo, error) {
 // ProbeRunning 探测本机 port 上是否已跑着 novel-mcp：能连上且 /healthz
 // 自报 service=novel-mcp 才算，避免把别的程序误认成自己。
 func ProbeRunning(port int) bool {
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := noRedirectClient(2 * time.Second)
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
 	if err != nil {
 		return false
@@ -679,6 +826,31 @@ func ProbeRunning(port int) bool {
 		return false
 	}
 	return resp.StatusCode == 200 && strings.Contains(string(body), `"service":"novel-mcp"`)
+}
+
+// ProbeConnection 确认当前端口上的 novel-mcp 与本地保存的 route/Bearer 属于同一实例。
+// 正确凭据走到方法门禁会返回 405；错 route/Bearer 分别在更早的门禁得到 404/401。
+func ProbeConnection(port int, info ConnectionInfo) bool {
+	if len(info.Route) != 64 {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/mcp/%s", port, info.Route), nil)
+	if err != nil {
+		return false
+	}
+	if !info.BearerOff {
+		if info.Bearer == "" {
+			return false
+		}
+		req.Header.Set("Authorization", "Bearer "+info.Bearer)
+	}
+	resp, err := noRedirectClient(2 * time.Second).Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode == http.StatusMethodNotAllowed
 }
 
 // PrintRunningCard 打印“已在运行”连接卡：用户双击第二次时看到的不再是报错，
@@ -697,7 +869,7 @@ func PrintRunningCard(w io.Writer, info ConnectionInfo) {
 	fmt.Fprintf(w, "  %s    %s\n", Gray("健康检查"), info.PublicURL+"/healthz（浏览器打开验证）")
 	fmt.Fprintln(w, rule)
 	fmt.Fprintf(w, "  %s\n", Gray("服务正在运行（可能没有窗口，看不见它很正常）"))
-	fmt.Fprintf(w, "  %s\n", Gray("想重开：PowerShell 跑 Get-Process novel-mcp | Stop-Process，再双击"))
+	fmt.Fprintf(w, "  %s\n", Gray("想重开：先停止正在运行的 novel-mcp 进程，再重新启动"))
 }
 
 // firstIPv4 取第一个 IPv4 用于展示（IPv6 太长且没人抄它）。

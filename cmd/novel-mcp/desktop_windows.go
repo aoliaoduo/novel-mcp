@@ -4,8 +4,10 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -34,21 +36,9 @@ func copyText(text string) error {
 	if err != nil {
 		return fmt.Errorf("剪贴板文本包含无效 NUL 字符: %w", err)
 	}
-	payload := make([]byte, len(utf16)*2)
-	for i, unit := range utf16 {
-		binary.LittleEndian.PutUint16(payload[i*2:], unit)
-	}
 
-	if ok, _, callErr := procOpenClipboard.Call(0); ok == 0 {
-		return fmt.Errorf("打开剪贴板失败: %w", callErr)
-	}
-	defer procCloseClipboard.Call()
-
-	if ok, _, callErr := procEmptyClipboard.Call(); ok == 0 {
-		return fmt.Errorf("清空剪贴板失败: %w", callErr)
-	}
-
-	hMem, _, callErr := procGlobalAlloc.Call(gmemMoveable|gmemZeroInit, uintptr(len(payload)))
+	// 先准备好内存，再清空系统剪贴板；分配失败时不破坏用户原有内容。
+	hMem, _, callErr := procGlobalAlloc.Call(gmemMoveable|gmemZeroInit, uintptr(len(utf16)*2))
 	if hMem == 0 {
 		return fmt.Errorf("分配剪贴板内存失败: %w", callErr)
 	}
@@ -63,11 +53,33 @@ func copyText(text string) error {
 	if ptr == 0 {
 		return fmt.Errorf("锁定剪贴板内存失败: %w", callErr)
 	}
+	payload := make([]byte, len(utf16)*2)
+	for i, unit := range utf16 {
+		binary.LittleEndian.PutUint16(payload[i*2:], unit)
+	}
 	if err := windows.WriteProcessMemory(windows.CurrentProcess(), ptr, &payload[0], uintptr(len(payload)), nil); err != nil {
 		procGlobalUnlock.Call(hMem)
 		return fmt.Errorf("写入剪贴板内存失败: %w", err)
 	}
 	procGlobalUnlock.Call(hMem)
+
+	// Windows 剪贴板会被其他程序短暂占用；给常见瞬时竞争一个很小的重试窗口。
+	opened := false
+	for i := 0; i < 5; i++ {
+		if ok, _, _ := procOpenClipboard.Call(0); ok != 0 {
+			opened = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !opened {
+		return errors.New("打开剪贴板失败：剪贴板正被其他程序占用")
+	}
+	defer procCloseClipboard.Call()
+
+	if ok, _, callErr := procEmptyClipboard.Call(); ok == 0 {
+		return fmt.Errorf("清空剪贴板失败: %w", callErr)
+	}
 
 	if result, _, callErr := procSetClipboard.Call(cfUnicodeText, hMem); result == 0 {
 		return fmt.Errorf("写入剪贴板失败: %w", callErr)
@@ -77,5 +89,5 @@ func copyText(text string) error {
 }
 
 func openURL(rawURL string) error {
-	return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", rawURL).Start()
+	return startDetached(exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", rawURL))
 }

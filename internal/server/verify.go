@@ -42,7 +42,7 @@ func (p *Projects) verifyProject(b *book) verifyReport {
 	report := verifyReport{Issues: []verifyIssue{}}
 	progress, err := b.store.Progress.Load()
 	if err != nil {
-		report.add("error", "PROGRESS_UNREADABLE", "meta/progress.json", 0, err.Error())
+		report.add("error", "PROGRESS_UNREADABLE", "meta/progress.json", 0, p.safeError(err))
 		report.OK = false
 		return report
 	}
@@ -76,7 +76,7 @@ func (p *Projects) verifyProject(b *book) verifyReport {
 
 		finalText, loadErr := b.store.Drafts.LoadChapterText(chapter)
 		if loadErr != nil {
-			report.add("error", "FINAL_UNREADABLE", fmt.Sprintf("chapters/%02d.md", chapter), chapter, loadErr.Error())
+			report.add("error", "FINAL_UNREADABLE", fmt.Sprintf("chapters/%02d.md", chapter), chapter, p.safeError(loadErr))
 			allRecords = false
 			continue
 		}
@@ -99,7 +99,7 @@ func (p *Projects) verifyProject(b *book) verifyReport {
 
 		record, recordErr := b.store.ChapterRecords.Load(chapter)
 		if recordErr != nil {
-			report.add("error", "CHAPTER_RECORD_UNREADABLE", fmt.Sprintf("meta/chapter_records/%06d.json", chapter), chapter, recordErr.Error())
+			report.add("error", "CHAPTER_RECORD_UNREADABLE", fmt.Sprintf("meta/chapter_records/%06d.json", chapter), chapter, p.safeError(recordErr))
 			allRecords = false
 		} else if record == nil {
 			report.add("error", "CHAPTER_RECORD_MISSING", fmt.Sprintf("meta/chapter_records/%06d.json", chapter), chapter, "已完成章节缺少接纳记录")
@@ -114,7 +114,7 @@ func (p *Projects) verifyProject(b *book) verifyReport {
 
 		summary, summaryErr := b.store.Summaries.LoadSummary(chapter)
 		if summaryErr != nil {
-			report.add("error", "SUMMARY_UNREADABLE", fmt.Sprintf("summaries/%02d.json", chapter), chapter, summaryErr.Error())
+			report.add("error", "SUMMARY_UNREADABLE", fmt.Sprintf("summaries/%02d.json", chapter), chapter, p.safeError(summaryErr))
 		} else if summary == nil {
 			report.add("error", "SUMMARY_MISSING", fmt.Sprintf("summaries/%02d.json", chapter), chapter, "已完成章节缺少摘要")
 		} else if record != nil && (summary.Title != record.Facts.Title || summary.Summary != record.Facts.Summary) {
@@ -136,15 +136,15 @@ func (p *Projects) verifyProject(b *book) verifyReport {
 
 	if allRecords && len(records) == len(seen) {
 		if err := revisionpkg.ValidateRecords(records); err != nil {
-			report.add("error", "FACT_CHAIN_INVALID", "meta/chapter_records", 0, err.Error())
+			report.add("error", "FACT_CHAIN_INVALID", "meta/chapter_records", 0, p.safeError(err))
 		} else if err := revisionpkg.VerifyProjection(b.store, records); err != nil {
-			report.add("error", "DERIVED_PROJECTION_MISMATCH", "derived-state", 0, err.Error())
+			report.add("error", "DERIVED_PROJECTION_MISMATCH", "derived-state", 0, p.safeError(err))
 		}
 	}
 
 	pending, pendingErr := b.store.Signals.LoadPendingCommit()
 	if pendingErr != nil {
-		report.add("error", "PENDING_COMMIT_UNREADABLE", "meta/pending_commit.json", 0, pendingErr.Error())
+		report.add("error", "PENDING_COMMIT_UNREADABLE", "meta/pending_commit.json", 0, p.safeError(pendingErr))
 	} else if pending != nil {
 		if pending.Chapter <= 0 {
 			report.add("error", "PENDING_COMMIT_CHAPTER_INVALID", "meta/pending_commit.json", pending.Chapter, "pending commit 章节号非法")
@@ -162,6 +162,7 @@ func (p *Projects) verifyProject(b *book) verifyReport {
 	}
 
 	for _, warning := range b.store.CheckConsistency() {
+		warning = strings.ReplaceAll(strings.ToValidUTF8(warning, "\uFFFD"), p.root, "<projects>")
 		report.add("warning", "STORE_SHALLOW_WARNING", "project", 0, warning)
 	}
 

@@ -30,6 +30,10 @@
 - `next_step.actions` 现在预填已知 `project` 和首个写动作的 `expected_revision`，并给出明确的 `expected_revision_source`；连接 instructions 要求客户端保留 `action.arguments` 再补 `required_inputs`，减少通用 Agent 丢失乐观锁/固定参数导致的无效重试。
 - `commit_chapter.state_changes` 的 strict schema 明确说明首次状态或未知旧值仍需传 `old_value: null`，无原因时传 `reason: null`，避免模型误把 nullable 理解成“字段可省略”。
 - 对下一步完全确定的可恢复错误增加最小 `error.recovery` 提示：revision 冲突引导重新读取路由/状态，`edit_chapter` 精确匹配失败引导先回读草稿；其余错误仍保持原有 `code/message`，不自动猜测恢复动作。
+- 加固 local/public 启动与 Tailscale Funnel：产品模式固定回环监听、启动前预占本机端口、已有实例同时核验 route/Bearer；修正自定义 HTTPS 端口、双 DoH 传播窗口、重定向与跨平台恢复提示等边界行为。
+- 配置、凭据与 store 原子写入统一到同目录临时文件 + sync + rename；严格拒绝未知/尾随 JSON，并修复便携配置移动、IPv6 Host/URL 和 Origin/public URL 端口校验等问题。
+- MCP/诊断路径不再把项目绝对路径或自由错误文本持久化；核心工具日志保留 project 归属，写工具在“已落盘但结果编码失败”时返回最新 revision 与确定性恢复提示，避免盲重放。
+- Release/公开导出脚本增加破坏性输出目录保护，Release 校验独立断言五个平台包齐全；CI 统一使用 `.go-version`，Dependabot 自动合并只接受与触发 `safety` 的 head SHA 一致的 PR。
 
 ## [0.6.0] - 2026-09-24
 

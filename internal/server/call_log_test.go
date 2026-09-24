@@ -67,3 +67,45 @@ func TestCallLogHTTPDoesNotNeedPathOrAuth(t *testing.T) {
 		t.Fatalf("HTTP 日志不应包含认证头或 route: %s", s)
 	}
 }
+
+func TestCallLogDoesNotPersistErrorMessageText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "logs", "novel-mcp.log")
+	log, err := NewCallLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log.Tool("save_review", "book", map[string]any{"project": "book"}, nil, false, "INVALID_REQUEST", "PRIVATE-ERROR-TEXT", time.Millisecond)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if strings.Contains(s, "PRIVATE-ERROR-TEXT") {
+		t.Fatalf("persistent call log leaked error text: %s", s)
+	}
+	if !strings.Contains(s, `"code":"INVALID_REQUEST"`) || !strings.Contains(s, `"message_chars":18`) {
+		t.Fatalf("error diagnostics missing: %s", s)
+	}
+}
+
+func TestCallLogRotatesAtBound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "logs", "novel-mcp.log")
+	log, err := NewCallLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log.maxBytes = 300
+	for i := 0; i < 8; i++ {
+		log.HTTP("health", "GET", 200, 0, false, currentMCPProtocolVersion, time.Millisecond)
+	}
+	if _, err := os.Stat(path + ".1"); err != nil {
+		t.Fatalf("rotated backup missing: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > log.maxBytes {
+		t.Fatalf("active log not bounded: size=%d max=%d", info.Size(), log.maxBytes)
+	}
+}

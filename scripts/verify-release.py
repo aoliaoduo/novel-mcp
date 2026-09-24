@@ -28,6 +28,19 @@ def main() -> int:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     expected = {item["name"]: item for item in manifest["artifacts"]}
+    version = manifest["version"]
+    required_artifacts = {
+        f"novel-mcp-v{version}-windows-amd64.zip",
+        f"novel-mcp-v{version}-linux-amd64.tar.gz",
+        f"novel-mcp-v{version}-linux-arm64.tar.gz",
+        f"novel-mcp-v{version}-darwin-amd64.tar.gz",
+        f"novel-mcp-v{version}-darwin-arm64.tar.gz",
+    }
+    if set(expected) != required_artifacts:
+        missing = sorted(required_artifacts - set(expected))
+        extra = sorted(set(expected) - required_artifacts)
+        raise SystemExit(f"release artifact set mismatch: missing={missing} extra={extra}")
+
     for name, item in expected.items():
         path = root / name
         if not path.is_file():

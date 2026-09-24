@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 const portableMarkerName = "portable.flag"
@@ -49,5 +51,17 @@ func isPortableConfig(path string) (string, bool) {
 
 func portableConfigDataDir(path, dataDir string) (string, bool) {
 	want := filepath.Clean(filepath.Join(dataDir, "config.json"))
-	return dataDir, filepath.Clean(path) == want
+	got, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	want, err = filepath.Abs(want)
+	if err != nil {
+		return "", false
+	}
+	got, want = filepath.Clean(got), filepath.Clean(want)
+	if runtime.GOOS == "windows" {
+		return dataDir, strings.EqualFold(got, want)
+	}
+	return dataDir, got == want
 }

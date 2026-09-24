@@ -38,4 +38,15 @@ func TestPortableConfigDataDirRebasesMovedBundle(t *testing.T) {
 	if _, ok := portableConfigDataDir(filepath.Join(t.TempDir(), "other.json"), dataDir); ok {
 		t.Fatal("unrelated config must not be rebound to portable data dir")
 	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(wd, filepath.Join(dataDir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := portableConfigDataDir(rel, dataDir); !ok || got != dataDir {
+		t.Fatalf("relative portable config = %q, %v; want %q, true", got, ok, dataDir)
+	}
 }
