@@ -231,8 +231,17 @@ func TestDecoratedWriterPlanCarriesDependenciesRevisionSourcesAndResources(t *te
 			t.Fatalf("actions[%d] dependencies=%v", i, deps)
 		}
 	}
-	if actions[0]["revision_source"] != "none" || actions[1]["revision_source"] != "a1" || actions[5]["revision_source"] != "a5" {
+	if actions[0]["revision_source"] != "none" || actions[1]["revision_source"] != "plan" || actions[5]["revision_source"] != "a3" {
 		t.Fatalf("revision chain unexpected: a1=%v a2=%v a6=%v", actions[0]["revision_source"], actions[1]["revision_source"], actions[5]["revision_source"])
+	}
+	if actions[1]["expected_revision_source"] != "next_step.revision" || actions[5]["expected_revision_source"] != "a3.revision" {
+		t.Fatalf("expected_revision_source unexpected: a2=%v a6=%v", actions[1]["expected_revision_source"], actions[5]["expected_revision_source"])
+	}
+	for i, a := range actions {
+		args := a["arguments"].(map[string]any)
+		if args["project"] != "machine-book" {
+			t.Fatalf("actions[%d] 没有预填 project: %#v", i, args)
+		}
 	}
 	if actions[2]["resource_uri"] != "novel://project/machine-book/chapter/3/draft" {
 		t.Fatalf("draft resource=%v", actions[2]["resource_uri"])
@@ -281,7 +290,7 @@ func TestDecoratedChoiceActionsDependOnSharedPrerequisite(t *testing.T) {
 	actions := out["actions"].([]map[string]any)
 	for _, i := range []int{1, 2} {
 		deps := actions[i]["depends_on"].([]string)
-		if len(deps) != 1 || deps[0] != "a1" || actions[i]["revision_source"] != "a1" {
+		if len(deps) != 1 || deps[0] != "a1" || actions[i]["revision_source"] != "plan" || actions[i]["expected_revision_source"] != "next_step.revision" {
 			t.Fatalf("choice action %d metadata=%#v", i, actions[i])
 		}
 	}

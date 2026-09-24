@@ -77,6 +77,18 @@ novel-mcp public --dry-run
 
 `doctor` 只做本机诊断，不主动访问公网 hostname。Tailscale / 公网链问题更适合 `public --dry-run`，因为它会执行只读公网预检。
 
+## MCP 客户端传输兼容性
+
+`novel-mcp` 使用 MCP `2026-07-28` + Streamable HTTP，不提供已经弃用的 HTTP+SSE 传输。
+
+在这一版协议里，MCP 端点收到 `GET` / `DELETE` 时故意返回 `405 Method Not Allowed`；正常 MCP 调用走 `POST`。因此如果客户端报：
+
+```text
+SSE error: ... 405
+```
+
+通常不是 route 或 Bearer 配错，而是客户端把现代 Streamable HTTP 端点当成旧 HTTP+SSE 在探测。正确处理是升级 MCP Host、在客户端选择 Streamable HTTP，或改用支持当前协议的 Host；不要靠去掉鉴权、给 URL 加尾斜杠等方式绕过。
+
 ## `public` 常用参数
 
 | 参数 | 作用 |

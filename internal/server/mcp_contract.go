@@ -36,18 +36,19 @@ func projectEnvelopeSchema(result map[string]any) map[string]any {
 
 func routeActionSchema() map[string]any {
 	return object(map[string]any{
-		"id":                map[string]any{"type": "string"},
-		"tool":              map[string]any{"type": "string"},
-		"arguments":         map[string]any{"type": "object"},
-		"required_inputs":   arraySchema(map[string]any{"type": "string"}),
-		"requires_revision": map[string]any{"type": "boolean"},
-		"revision_source":   map[string]any{"type": "string"},
-		"depends_on":        arraySchema(map[string]any{"type": "string"}),
-		"purpose":           map[string]any{"type": "string"},
-		"mode":              map[string]any{"type": "string", "enum": []string{"required", "choice"}},
-		"choice_group":      map[string]any{"type": "string"},
-		"resource_uri":      map[string]any{"type": "string"},
-	}, "id", "tool", "arguments", "required_inputs", "requires_revision", "revision_source", "depends_on", "purpose", "mode", "choice_group")
+		"id":                       map[string]any{"type": "string"},
+		"tool":                     map[string]any{"type": "string"},
+		"arguments":                map[string]any{"type": "object"},
+		"required_inputs":          arraySchema(map[string]any{"type": "string"}),
+		"requires_revision":        map[string]any{"type": "boolean"},
+		"revision_source":          map[string]any{"type": "string"},
+		"expected_revision_source": map[string]any{"type": "string"},
+		"depends_on":               arraySchema(map[string]any{"type": "string"}),
+		"purpose":                  map[string]any{"type": "string"},
+		"mode":                     map[string]any{"type": "string", "enum": []string{"required", "choice"}},
+		"choice_group":             map[string]any{"type": "string"},
+		"resource_uri":             map[string]any{"type": "string"},
+	}, "id", "tool", "arguments", "required_inputs", "requires_revision", "revision_source", "expected_revision_source", "depends_on", "purpose", "mode", "choice_group")
 }
 
 func nextStepResultSchema() map[string]any {

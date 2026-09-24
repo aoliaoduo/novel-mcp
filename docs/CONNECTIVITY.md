@@ -77,6 +77,18 @@ novel-mcp public --dry-run
 
 `doctor` stays local and does not probe the public hostname. `public --dry-run` is the better tool for Tailscale/public-network diagnosis because it performs the read-only public preflight.
 
+## MCP client transport compatibility
+
+`novel-mcp` speaks MCP protocol `2026-07-28` over Streamable HTTP. It does not expose the deprecated HTTP+SSE transport.
+
+For this protocol revision, `GET` and `DELETE` on the MCP endpoint intentionally return `405 Method Not Allowed`; normal MCP traffic uses `POST`. Therefore an error such as:
+
+```text
+SSE error: ... 405
+```
+
+usually means the client is probing the endpoint as the old HTTP+SSE transport instead of using current Streamable HTTP. Updating the MCP host, selecting its Streamable HTTP transport, or using another current MCP host is the right fix. Do not remove the route/Bearer credentials or add a trailing slash to work around it.
+
 ## Public-mode flags
 
 | Flag | Meaning |

@@ -33,9 +33,9 @@ func Properties(includeFeedback bool) []schema.Prop {
 	stateChange := schema.Object(
 		schema.Property("entity", schema.String("实体")).Required(),
 		schema.Property("field", schema.String("属性")).Required(),
-		schema.Property("old_value", llmcontract.Nullable(schema.String("变化前值"))).Required(),
+		schema.Property("old_value", llmcontract.Nullable(schema.String("变化前值；首次出现或未知时也必须显式传 null，不能省略字段"))).Required(),
 		schema.Property("new_value", schema.String("变化后值")).Required(),
-		schema.Property("reason", llmcontract.Nullable(schema.String("原因"))).Required(),
+		schema.Property("reason", llmcontract.Nullable(schema.String("变化原因；没有需要记录的原因时也必须显式传 null，不能省略字段"))).Required(),
 	)
 	props := []schema.Prop{
 		schema.Property("title", schema.String("最终标题")).Required(),

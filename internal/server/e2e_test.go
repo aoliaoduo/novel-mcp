@@ -93,6 +93,10 @@ func TestEndToEndOverRealProcess(t *testing.T) {
 	if first["id"] != "a1" || first["revision_source"] != "none" || second["id"] != "a2" || second["revision_source"] != "plan" {
 		t.Fatalf("next_step action revision 链不正确: first=%+v second=%+v", first, second)
 	}
+	secondArgs, _ := second["arguments"].(map[string]any)
+	if secondArgs["project"] != "e2e-book" || secondArgs["expected_revision"] != rev || second["expected_revision_source"] != "next_step.revision" {
+		t.Fatalf("next_step 没把已知 project/revision 绑定进首个写 action: %+v", second)
+	}
 	if nextResult["context_resource_uri"] != "novel://project/e2e-book/context" {
 		t.Fatalf("next_step context resource 不正确: %+v", nextResult)
 	}
@@ -522,8 +526,14 @@ func connect(t *testing.T, base, route string, _ http.RoundTripper, bearer strin
 	if err != nil {
 		t.Fatalf("连接失败: %v", err)
 	}
-	if session.InitializeResult().Instructions == "" {
+	instructions := session.InitializeResult().Instructions
+	if instructions == "" {
 		t.Fatal("initialize 未带 instructions")
+	}
+	for _, want := range []string{"action.arguments", "required_inputs", "expected_revision_source"} {
+		if !strings.Contains(instructions, want) {
+			t.Fatalf("initialize instructions 缺执行 action 的关键约束 %q: %s", want, instructions)
+		}
 	}
 	return session
 }

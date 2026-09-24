@@ -54,6 +54,19 @@ func TestCommitChapterSchemaDescribesFeedbackAsObject(t *testing.T) {
 	if got := fmt.Sprint(feedback["type"]); got != "[object null]" {
 		t.Fatalf("feedback type = %v, want nullable object", feedback["type"])
 	}
+	stateChanges, ok := props["state_changes"].(map[string]any)
+	if !ok {
+		t.Fatalf("state_changes schema missing: %#v", props["state_changes"])
+	}
+	items, _ := stateChanges["items"].(map[string]any)
+	stateProps, _ := items["properties"].(map[string]any)
+	for _, field := range []string{"old_value", "reason"} {
+		fieldSchema, _ := stateProps[field].(map[string]any)
+		desc, _ := fieldSchema["description"].(string)
+		if !strings.Contains(desc, "null") || !strings.Contains(desc, "不能省略") {
+			t.Fatalf("state_changes.%s should explain explicit null requirement, got %q", field, desc)
+		}
+	}
 }
 
 func TestCommitChapterRejectsUnknownForeshadowReferenceBeforePending(t *testing.T) {

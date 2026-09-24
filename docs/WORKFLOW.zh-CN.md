@@ -52,6 +52,7 @@ list_projects
 - `depends_on`：必须先完成的 action ID。
 - `requires_revision`：是否需要 `expected_revision`。
 - `revision_source`：revision 应来自当前 `plan`、某个前序 action（如 `a3`），或 `none`。
+- `expected_revision_source`：需要绑定的明确结果字段，例如 `next_step.revision` 或 `a3.revision`。
 - `mode`：`required` 或 `choice`。
 - `choice_group`：同一非空组内互斥，只能选一个，不能全部顺序执行。
 - `resource_uri`：该工件也能通过 MCP Resource 读取时给出。
@@ -64,8 +65,9 @@ revision 是整本项目内容指纹，不是递增版本号。
 
 写 action：
 
-- `revision_source=plan`：使用本次 `next_step` 外层 envelope 的 revision；
-- 指向 `a3` 等 action：使用该 action 返回的 revision；
+- `arguments` 会直接带上已知的 `project`；
+- `revision_source=plan`：`arguments.expected_revision` 已由本次 `next_step` 外层 revision 预填；
+- 指向 `a3` 等 action：把 `a3.revision` 绑定到 `expected_revision`（同一来源也会写在 `expected_revision_source`）；
 - 纯读 action 为 `none`。
 
 遇到 `REVISION_CONFLICT` 必须先重读事实，再判断是否重试。不要盲目重放 append；重复执行 `draft_chapter(mode=append)` 会重复正文，因此服务器会在写入前拦陈旧 revision。

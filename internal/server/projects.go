@@ -573,6 +573,7 @@ func (p *Projects) Call(ctx context.Context, id, name, expected string, args map
 		if err != nil {
 			return nil, err
 		}
+		bindPlanRevision(out, before)
 		shaped, err := jsonShape(out)
 		if err != nil {
 			return nil, err

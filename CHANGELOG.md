@@ -21,6 +21,9 @@
 - 完整 Tailscale smoke 成功后自动删除临时项目；Tailscale 启动/控制面异常时给出更直接的代理/TUN 排查提示。
 - 首次项目规划改成两阶段 action plan：先落带 `scale` 的 premise 确定 short/mid/long，再由下一次 `next_step` 精确派发 `outline`/`layered_outline`、角色、世界规则等缺项，避免严格按 actions 执行的 Host 漏设定。
 - MCP instructions、长篇提示词和运行时错误统一使用真实工具调用名，例如 `save_foundation(type=append_volume)`，不再把 `append_volume` / `complete_book` 误写成独立工具。
+- 连接文档补充 Streamable HTTP / 旧 HTTP+SSE 的 `405` 识别说明，避免把客户端错误使用旧 SSE 传输误判成 route、Bearer 或服务端故障。
+- `next_step.actions` 现在预填已知 `project` 和首个写动作的 `expected_revision`，并给出明确的 `expected_revision_source`；连接 instructions 要求客户端保留 `action.arguments` 再补 `required_inputs`，减少通用 Agent 丢失乐观锁/固定参数导致的无效重试。
+- `commit_chapter.state_changes` 的 strict schema 明确说明首次状态或未知旧值仍需传 `old_value: null`，无原因时传 `reason: null`，避免模型误把 nullable 理解成“字段可省略”。
 
 ## [0.6.0] - 2026-09-24
 

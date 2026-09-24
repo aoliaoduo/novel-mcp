@@ -41,9 +41,9 @@ func toolRequiresRevision(tool string) bool {
 	}
 }
 
-func toolReturnsProjectRevision(tool string) bool {
+func actionNeedsProject(tool string) bool {
 	switch tool {
-	case "list_projects", "novel_guide":
+	case "list_projects", "create_project", "novel_guide":
 		return false
 	default:
 		return true
@@ -63,6 +63,15 @@ func decoratePlan(project string, out map[string]any) map[string]any {
 	for i, item := range actions {
 		id := fmt.Sprintf("a%d", i+1)
 		item["id"] = id
+		tool, _ := item["tool"].(string)
+		args, _ := item["arguments"].(map[string]any)
+		if args == nil {
+			args = map[string]any{}
+			item["arguments"] = args
+		}
+		if actionNeedsProject(tool) {
+			args["project"] = project
+		}
 		deps := []string{}
 		if lastRequired != "" {
 			deps = append(deps, lastRequired)
@@ -71,19 +80,22 @@ func decoratePlan(project string, out map[string]any) map[string]any {
 		requires, _ := item["requires_revision"].(bool)
 		if !requires {
 			item["revision_source"] = "none"
+			item["expected_revision_source"] = "none"
 		} else if lastRevision == "" {
 			item["revision_source"] = "plan"
+			item["expected_revision_source"] = "next_step.revision"
 		} else {
 			item["revision_source"] = lastRevision
+			item["expected_revision_source"] = lastRevision + ".revision"
 		}
-		tool, _ := item["tool"].(string)
-		args, _ := item["arguments"].(map[string]any)
 		if uri := actionResourceURI(project, tool, args); uri != "" {
 			item["resource_uri"] = uri
 		}
 		if mode, _ := item["mode"].(string); mode == string(flow.RouteActionRequired) {
 			lastRequired = id
-			if toolReturnsProjectRevision(tool) {
+			// 纯读 action 返回 revision 但不会改变它。乐观锁只追踪最近一次
+			// 可能改盘的 required action，避免 Agent 在 read/check 结果间搬运同一指纹。
+			if requires {
 				lastRevision = id
 			}
 		}
@@ -95,6 +107,28 @@ func decoratePlan(project string, out map[string]any) map[string]any {
 		out["context_resource_uri"] = projectContextResourceURI(project)
 	}
 	return out
+}
+
+// bindPlanRevision 把当前 next_step 已知的 revision 直接填进首批写 action。
+// 后续写 action 的 revision 要等前序写入完成后才知道，因此只通过
+// expected_revision_source=<action>.revision 描述绑定关系，绝不预填陈旧值。
+func bindPlanRevision(out map[string]any, revision string) {
+	if revision == "" {
+		return
+	}
+	actions, ok := out["actions"].([]map[string]any)
+	if !ok {
+		return
+	}
+	for _, item := range actions {
+		if item["revision_source"] != "plan" {
+			continue
+		}
+		args, _ := item["arguments"].(map[string]any)
+		if args != nil {
+			args["expected_revision"] = revision
+		}
+	}
 }
 
 func routeActions(actions []flow.RouteAction) []map[string]any {

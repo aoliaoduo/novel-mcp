@@ -52,6 +52,7 @@ Each action is a machine-readable instruction. Important fields include:
 - `depends_on`: earlier action IDs that must complete first.
 - `requires_revision`: whether this call needs `expected_revision`.
 - `revision_source`: where to take that revision from: `plan`, a previous action ID, or `none`.
+- `expected_revision_source`: the exact result field to bind, such as `next_step.revision` or `a3.revision`.
 - `mode`: `required` or `choice`.
 - `choice_group`: actions in the same non-empty group are mutually exclusive; choose one, do not run all of them.
 - `resource_uri`: present when the same artifact can also be read through MCP Resources.
@@ -64,8 +65,9 @@ A project revision is a whole-project content fingerprint, not an incrementing c
 
 For a write action:
 
-- if `revision_source=plan`, use the revision from the outer `next_step` envelope;
-- if it names an action such as `a3`, use the revision returned by that action;
+- `arguments` already contains the known `project`;
+- if `revision_source=plan`, `arguments.expected_revision` is already filled from the outer `next_step` envelope;
+- if it names an action such as `a3`, bind `expected_revision` from `a3.revision` (the same source is spelled out in `expected_revision_source`);
 - read-only actions use `none`.
 
 On `REVISION_CONFLICT`, re-read current facts before deciding whether to retry. Never blindly replay an append. A duplicate `draft_chapter(mode=append)` can duplicate prose, which is why stale revisions are rejected before the write runs.
