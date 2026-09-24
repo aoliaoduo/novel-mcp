@@ -8,6 +8,12 @@ import (
 	"testing"
 )
 
+func appendDecisionBytes(s *Store, data []byte) error {
+	return s.Decisions.io.WithWriteLock(func() error {
+		return s.Decisions.io.AppendLineUnlocked(decisionsFile, data)
+	})
+}
+
 func TestDecisionStore_AppendAndRecent(t *testing.T) {
 	s := NewStore(t.TempDir())
 	if err := s.Init(); err != nil {
@@ -84,7 +90,7 @@ func TestDecisionStore_RecentRejectsCommittedCorruptLine(t *testing.T) {
 		t.Fatalf("append: %v", err)
 	}
 	// 已 '\n' 收尾的损坏行(完整提交却损坏),其后再追加一条完整记录。
-	if err := s.Decisions.io.AppendLine(decisionsFile, []byte("{\"schema_version\":1,\"kind\":\"interv\n")); err != nil {
+	if err := appendDecisionBytes(s, []byte("{\"schema_version\":1,\"kind\":\"interv\n")); err != nil {
 		t.Fatalf("append corrupt: %v", err)
 	}
 	if _, err := s.Decisions.Append(DecisionRecord{Kind: "intervention", Decider: "arbiter", Input: "之后"}); err != nil {
@@ -107,7 +113,7 @@ func TestDecisionStore_RecentToleratesUncommittedTail(t *testing.T) {
 		t.Fatalf("append: %v", err)
 	}
 	// 模拟崩溃打断的尾部残行:无换行结尾。
-	if err := s.Decisions.io.AppendLine(decisionsFile, []byte(`{"schema_version":1,"kind":"interv`)); err != nil {
+	if err := appendDecisionBytes(s, []byte(`{"schema_version":1,"kind":"interv`)); err != nil {
 		t.Fatalf("append partial: %v", err)
 	}
 	recent, err := s.Decisions.Recent(10)
@@ -153,7 +159,7 @@ func TestDecisionStore_RecoveryDropsValidJSONWithoutCommitNewline(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Decisions.io.AppendLine(decisionsFile, partial); err != nil {
+	if err := appendDecisionBytes(s, partial); err != nil {
 		t.Fatal(err)
 	}
 

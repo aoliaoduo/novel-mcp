@@ -3,7 +3,6 @@ package store
 
 import (
 	"fmt"
-	"os"
 
 	"novel-mcp/internal/domain"
 )
@@ -15,11 +14,8 @@ func NewBookStore(io *IO) *BookStore { return &BookStore{io: io} }
 
 // Load 读取作品信息；尚未生成时返回 nil。
 func (s *BookStore) Load() (*domain.BookMetadata, error) {
-	var book domain.BookMetadata
-	if err := s.io.ReadJSON("meta/book.json", &book); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	book, ok, err := readJSONIfExists[domain.BookMetadata](s.io, "meta/book.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	book = book.Normalized()

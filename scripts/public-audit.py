@@ -151,9 +151,19 @@ def scan_text(scope: str, location_prefix: str, text: str) -> set[Finding]:
 def scan_current() -> set[Finding]:
     findings: set[Finding] = set()
     for rel in publishable_files():
+        path = ROOT / rel
+        try:
+            # git ls-files 仍会列出“工作树中已删除、尚未 stage”的 tracked path。
+            # 这类路径不会进入下一版树，应跳过；用 lstat 而不是 exists，确保
+            # broken symlink 仍进入下面的 symlink 拒绝分支。
+            path.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            findings.add(Finding("current", "unreadable-file", rel))
+            continue
         if sensitive_filename(rel):
             findings.add(Finding("current", "sensitive-filename", rel))
-        path = ROOT / rel
         try:
             if path.is_symlink():
                 findings.add(Finding("current", "symlink-file", rel))

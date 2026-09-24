@@ -28,7 +28,7 @@ func fakeSnapshot() Snapshot {
 }
 
 func testModel() model {
-	m := newModel(fakeSnapshot)
+	m := newModelWithActions(fakeSnapshot, nil, nil)
 	m.width, m.height = 120, 40
 	return m
 }

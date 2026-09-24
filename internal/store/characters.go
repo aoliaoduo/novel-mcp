@@ -3,7 +3,6 @@ package store
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"novel-mcp/internal/domain"
@@ -31,14 +30,8 @@ func (s *CharacterStore) Save(chars []domain.Character) error {
 
 // Load 从 characters.json 读取角色档案。
 func (s *CharacterStore) Load() ([]domain.Character, error) {
-	var chars []domain.Character
-	if err := s.io.ReadJSON("characters.json", &chars); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return chars, nil
+	chars, _, err := readJSONIfExists[[]domain.Character](s.io, "characters.json")
+	return chars, err
 }
 
 // SaveSnapshots 保存角色状态快照到 meta/snapshots/v{vol}a{arc}.json。
@@ -48,14 +41,8 @@ func (s *CharacterStore) SaveSnapshots(volume, arc int, snapshots []domain.Chara
 
 // LoadSnapshots 读取指定卷弧的角色快照。
 func (s *CharacterStore) LoadSnapshots(volume, arc int) ([]domain.CharacterSnapshot, error) {
-	var snapshots []domain.CharacterSnapshot
-	if err := s.io.ReadJSON(fmt.Sprintf("meta/snapshots/v%02da%02d.json", volume, arc), &snapshots); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return snapshots, nil
+	snapshots, _, err := readJSONIfExists[[]domain.CharacterSnapshot](s.io, fmt.Sprintf("meta/snapshots/v%02da%02d.json", volume, arc))
+	return snapshots, err
 }
 
 // LoadLatestSnapshots 加载最近一次角色快照（按卷弧倒序查找）。

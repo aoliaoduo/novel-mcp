@@ -102,10 +102,6 @@ type model struct {
 	openURL       func(string) error
 }
 
-func newModel(fn SnapshotFunc) model {
-	return newModelWithActions(fn, nil, nil)
-}
-
 func newModelWithActions(fn SnapshotFunc, copyFn func(string) error, openFn func(string) error) model {
 	return model{snapshot: fn, width: 80, height: 24, snap: fn(), copy: copyFn, openURL: openFn}
 }

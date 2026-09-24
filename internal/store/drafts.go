@@ -24,11 +24,8 @@ func (s *DraftStore) SaveChapterPlan(plan domain.ChapterPlan) error {
 
 // LoadChapterPlan 读取章节构思。
 func (s *DraftStore) LoadChapterPlan(chapter int) (*domain.ChapterPlan, error) {
-	var plan domain.ChapterPlan
-	if err := s.io.ReadJSON(fmt.Sprintf("drafts/%02d.plan.json", chapter), &plan); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	plan, ok, err := readJSONIfExists[domain.ChapterPlan](s.io, fmt.Sprintf("drafts/%02d.plan.json", chapter))
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &plan, nil

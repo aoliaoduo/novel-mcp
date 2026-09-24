@@ -52,14 +52,8 @@ func (s *OutlineStore) saveOutlineUnlocked(entries []domain.OutlineEntry) error 
 
 // LoadOutline 从 outline.json 读取结构化大纲。
 func (s *OutlineStore) LoadOutline() ([]domain.OutlineEntry, error) {
-	var entries []domain.OutlineEntry
-	if err := s.io.ReadJSON("outline.json", &entries); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return entries, nil
+	entries, _, err := readJSONIfExists[[]domain.OutlineEntry](s.io, "outline.json")
+	return entries, err
 }
 
 // GetChapterOutline 获取指定章节的大纲条目。
@@ -87,11 +81,8 @@ func (s *OutlineStore) SaveLayeredOutline(volumes []domain.VolumeOutline) error 
 
 // LoadLayeredOutline 读取分层大纲。
 func (s *OutlineStore) LoadLayeredOutline() ([]domain.VolumeOutline, error) {
-	var volumes []domain.VolumeOutline
-	if err := s.io.ReadJSON("layered_outline.json", &volumes); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	volumes, _, err := readJSONIfExists[[]domain.VolumeOutline](s.io, "layered_outline.json")
+	if err != nil {
 		return nil, err
 	}
 	if err := validateLayeredIndexes(volumes); err != nil {
@@ -510,11 +501,8 @@ func (s *OutlineStore) SaveCompass(compass domain.StoryCompass) error {
 
 // LoadCompass 读取终局方向指南针。
 func (s *OutlineStore) LoadCompass() (*domain.StoryCompass, error) {
-	var c domain.StoryCompass
-	if err := s.io.ReadJSON("meta/compass.json", &c); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	c, ok, err := readJSONIfExists[domain.StoryCompass](s.io, "meta/compass.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &c, nil
@@ -527,11 +515,8 @@ func (s *OutlineStore) SaveFoundationAudit(a domain.FoundationAudit) error {
 
 // LoadFoundationAudit 读取最近一次基础设定语义审查。
 func (s *OutlineStore) LoadFoundationAudit() (*domain.FoundationAudit, error) {
-	var a domain.FoundationAudit
-	if err := s.io.ReadJSON("meta/foundation_audit.json", &a); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	a, ok, err := readJSONIfExists[domain.FoundationAudit](s.io, "meta/foundation_audit.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &a, nil

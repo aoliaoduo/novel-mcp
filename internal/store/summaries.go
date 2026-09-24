@@ -3,7 +3,6 @@ package store
 
 import (
 	"fmt"
-	"os"
 	"sync"
 
 	"novel-mcp/internal/domain"
@@ -34,11 +33,8 @@ func (s *SummaryStore) SaveSummary(sum domain.ChapterSummary) error {
 
 // LoadSummary 读取指定章节的摘要。
 func (s *SummaryStore) LoadSummary(chapter int) (*domain.ChapterSummary, error) {
-	var sum domain.ChapterSummary
-	if err := s.io.ReadJSON(fmt.Sprintf("summaries/%02d.json", chapter), &sum); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	sum, ok, err := readJSONIfExists[domain.ChapterSummary](s.io, fmt.Sprintf("summaries/%02d.json", chapter))
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &sum, nil
@@ -107,11 +103,8 @@ func (s *SummaryStore) HasVolumeSummary(volume int) (bool, error) {
 
 // LoadArcSummary 读取指定弧的摘要。
 func (s *SummaryStore) LoadArcSummary(volume, arc int) (*domain.ArcSummary, error) {
-	var sum domain.ArcSummary
-	if err := s.io.ReadJSON(fmt.Sprintf("summaries/arc-v%02da%02d.json", volume, arc), &sum); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	sum, ok, err := readJSONIfExists[domain.ArcSummary](s.io, fmt.Sprintf("summaries/arc-v%02da%02d.json", volume, arc))
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &sum, nil
@@ -140,11 +133,8 @@ func (s *SummaryStore) SaveVolumeSummary(sum domain.VolumeSummary) error {
 
 // LoadVolumeSummary 读取指定卷的摘要。
 func (s *SummaryStore) LoadVolumeSummary(volume int) (*domain.VolumeSummary, error) {
-	var sum domain.VolumeSummary
-	if err := s.io.ReadJSON(fmt.Sprintf("summaries/vol-v%02d.json", volume), &sum); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	sum, ok, err := readJSONIfExists[domain.VolumeSummary](s.io, fmt.Sprintf("summaries/vol-v%02d.json", volume))
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &sum, nil

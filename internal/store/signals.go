@@ -1,11 +1,7 @@
 // Modified for novel-mcp: local module import paths; see UPSTREAM.md.
 package store
 
-import (
-	"os"
-
-	"novel-mcp/internal/domain"
-)
+import "novel-mcp/internal/domain"
 
 // SignalStore 管理一次性信号文件（commit/review 结果、待恢复状态）。
 type SignalStore struct{ io *IO }
@@ -19,11 +15,8 @@ func (s *SignalStore) SaveLastCommit(result domain.CommitResult) error {
 
 // LoadLastCommit 读取最近一次 commit 结果。
 func (s *SignalStore) LoadLastCommit() (*domain.CommitResult, error) {
-	var r domain.CommitResult
-	if err := s.io.ReadJSON("meta/last_commit.json", &r); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	r, ok, err := readJSONIfExists[domain.CommitResult](s.io, "meta/last_commit.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &r, nil
@@ -33,11 +26,8 @@ func (s *SignalStore) LoadLastCommit() (*domain.CommitResult, error) {
 func (s *SignalStore) LoadAndClearLastCommit() (*domain.CommitResult, error) {
 	s.io.mu.Lock()
 	defer s.io.mu.Unlock()
-	var r domain.CommitResult
-	if err := s.io.ReadJSONUnlocked("meta/last_commit.json", &r); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	r, ok, err := readJSONIfExistsUnlocked[domain.CommitResult](s.io, "meta/last_commit.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	_ = s.io.RemoveFileUnlocked("meta/last_commit.json")
@@ -56,11 +46,8 @@ func (s *SignalStore) SavePendingCommit(pending domain.PendingCommit) error {
 
 // LoadPendingCommit 读取待恢复的章节提交状态。
 func (s *SignalStore) LoadPendingCommit() (*domain.PendingCommit, error) {
-	var pending domain.PendingCommit
-	if err := s.io.ReadJSON("meta/pending_commit.json", &pending); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	pending, ok, err := readJSONIfExists[domain.PendingCommit](s.io, "meta/pending_commit.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &pending, nil
@@ -78,11 +65,8 @@ func (s *SignalStore) SaveLastReview(r domain.ReviewEntry) error {
 
 // LoadLastReviewSignal 读取审阅信号文件。
 func (s *SignalStore) LoadLastReviewSignal() (*domain.ReviewEntry, error) {
-	var r domain.ReviewEntry
-	if err := s.io.ReadJSON("meta/last_review.json", &r); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	r, ok, err := readJSONIfExists[domain.ReviewEntry](s.io, "meta/last_review.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &r, nil
@@ -97,11 +81,8 @@ func (s *SignalStore) ClearLastReview() error {
 func (s *SignalStore) LoadAndClearLastReview() (*domain.ReviewEntry, error) {
 	s.io.mu.Lock()
 	defer s.io.mu.Unlock()
-	var r domain.ReviewEntry
-	if err := s.io.ReadJSONUnlocked("meta/last_review.json", &r); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	r, ok, err := readJSONIfExistsUnlocked[domain.ReviewEntry](s.io, "meta/last_review.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	_ = s.io.RemoveFileUnlocked("meta/last_review.json")

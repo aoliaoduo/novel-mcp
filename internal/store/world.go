@@ -144,24 +144,16 @@ func (s *WorldStore) SaveForeshadowLedger(entries []domain.ForeshadowEntry) erro
 
 // LoadForeshadowLedger 读取伏笔账本。
 func (s *WorldStore) LoadForeshadowLedger() ([]domain.ForeshadowEntry, error) {
-	var entries []domain.ForeshadowEntry
-	if err := s.io.ReadJSON("foreshadow_ledger.json", &entries); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return entries, nil
+	entries, _, err := readJSONIfExists[[]domain.ForeshadowEntry](s.io, "foreshadow_ledger.json")
+	return entries, err
 }
 
 // UpdateForeshadow 批量应用伏笔增量操作。
 func (s *WorldStore) UpdateForeshadow(chapter int, updates []domain.ForeshadowUpdate) error {
 	return s.io.WithWriteLock(func() error {
-		var entries []domain.ForeshadowEntry
-		if err := s.io.ReadJSONUnlocked("foreshadow_ledger.json", &entries); err != nil {
-			if !os.IsNotExist(err) {
-				return err
-			}
+		entries, _, err := readJSONIfExistsUnlocked[[]domain.ForeshadowEntry](s.io, "foreshadow_ledger.json")
+		if err != nil {
+			return err
 		}
 		idx := make(map[string]int, len(entries))
 		for i, e := range entries {
@@ -248,24 +240,16 @@ func (s *WorldStore) SaveRelationships(entries []domain.RelationshipEntry) error
 
 // LoadRelationships 读取人物关系状态。
 func (s *WorldStore) LoadRelationships() ([]domain.RelationshipEntry, error) {
-	var entries []domain.RelationshipEntry
-	if err := s.io.ReadJSON("relationship_state.json", &entries); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return entries, nil
+	entries, _, err := readJSONIfExists[[]domain.RelationshipEntry](s.io, "relationship_state.json")
+	return entries, err
 }
 
 // UpdateRelationships 合并关系变化。
 func (s *WorldStore) UpdateRelationships(changes []domain.RelationshipEntry) error {
 	return s.io.WithWriteLock(func() error {
-		var existing []domain.RelationshipEntry
-		if err := s.io.ReadJSONUnlocked("relationship_state.json", &existing); err != nil {
-			if !os.IsNotExist(err) {
-				return err
-			}
+		existing, _, err := readJSONIfExistsUnlocked[[]domain.RelationshipEntry](s.io, "relationship_state.json")
+		if err != nil {
+			return err
 		}
 		idx := make(map[string]int, len(existing))
 		for i, e := range existing {
@@ -326,14 +310,8 @@ func (s *WorldStore) SaveWorldRules(rules []domain.WorldRule) error {
 
 // LoadWorldRules 读取世界规则。
 func (s *WorldStore) LoadWorldRules() ([]domain.WorldRule, error) {
-	var rules []domain.WorldRule
-	if err := s.io.ReadJSON("world_rules.json", &rules); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return rules, nil
+	rules, _, err := readJSONIfExists[[]domain.WorldRule](s.io, "world_rules.json")
+	return rules, err
 }
 
 // ── 风格规则 ──
@@ -345,11 +323,8 @@ func (s *WorldStore) SaveStyleRules(rules domain.WritingStyleRules) error {
 
 // LoadStyleRules 读取写作风格规则。
 func (s *WorldStore) LoadStyleRules() (*domain.WritingStyleRules, error) {
-	var rules domain.WritingStyleRules
-	if err := s.io.ReadJSON("meta/style_rules.json", &rules); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	rules, ok, err := readJSONIfExists[domain.WritingStyleRules](s.io, "meta/style_rules.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &rules, nil
@@ -360,11 +335,8 @@ func (s *WorldStore) SaveAuthorRevisionStyle(style domain.AuthorRevisionStyle) e
 }
 
 func (s *WorldStore) LoadAuthorRevisionStyle() (*domain.AuthorRevisionStyle, error) {
-	var style domain.AuthorRevisionStyle
-	if err := s.io.ReadJSON("meta/author_revision_style.json", &style); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	style, ok, err := readJSONIfExists[domain.AuthorRevisionStyle](s.io, "meta/author_revision_style.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &style, nil
@@ -402,11 +374,8 @@ func (s *WorldStore) HasGlobalReview(chapter int) (bool, error) {
 
 // LoadGlobalReview 读取指定截止章节的全局审阅。
 func (s *WorldStore) LoadGlobalReview(chapter int) (*domain.ReviewEntry, error) {
-	var r domain.ReviewEntry
-	if err := s.io.ReadJSON(fmt.Sprintf("reviews/%02d-global.json", chapter), &r); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	r, ok, err := readJSONIfExists[domain.ReviewEntry](s.io, fmt.Sprintf("reviews/%02d-global.json", chapter))
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &r, nil
@@ -414,11 +383,8 @@ func (s *WorldStore) LoadGlobalReview(chapter int) (*domain.ReviewEntry, error) 
 
 // LoadReview 读取章节审阅结果。
 func (s *WorldStore) LoadReview(chapter int) (*domain.ReviewEntry, error) {
-	var r domain.ReviewEntry
-	if err := s.io.ReadJSON(fmt.Sprintf("reviews/%02d.json", chapter), &r); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	r, ok, err := readJSONIfExists[domain.ReviewEntry](s.io, fmt.Sprintf("reviews/%02d.json", chapter))
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &r, nil
@@ -427,12 +393,12 @@ func (s *WorldStore) LoadReview(chapter int) (*domain.ReviewEntry, error) {
 // LoadLastReview 读取最近一次全局审阅。
 func (s *WorldStore) LoadLastReview(fromChapter int) (*domain.ReviewEntry, error) {
 	for ch := fromChapter; ch >= 1; ch-- {
-		var r domain.ReviewEntry
-		if err := s.io.ReadJSON(fmt.Sprintf("reviews/%02d-global.json", ch), &r); err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
+		r, ok, err := readJSONIfExists[domain.ReviewEntry](s.io, fmt.Sprintf("reviews/%02d-global.json", ch))
+		if err != nil {
 			return nil, err
+		}
+		if !ok {
+			continue
 		}
 		return &r, nil
 	}

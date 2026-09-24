@@ -77,6 +77,31 @@ func (io *IO) ReadJSONUnlocked(rel string, v any) error {
 	return json.Unmarshal(data, v)
 }
 
+// readJSONIfExists 把 store 层最常见的“JSON 不存在 = 尚未产生事实”语义
+// 收敛到一个地方。它只吞 os.ErrNotExist；损坏 JSON、权限错误等仍原样上抛。
+func readJSONIfExists[T any](io *IO, rel string) (T, bool, error) {
+	var value T
+	if err := io.ReadJSON(rel, &value); err != nil {
+		if os.IsNotExist(err) {
+			return value, false, nil
+		}
+		return value, false, err
+	}
+	return value, true, nil
+}
+
+// readJSONIfExistsUnlocked 与 readJSONIfExists 相同，但调用方必须已持有对应 IO 锁。
+func readJSONIfExistsUnlocked[T any](io *IO, rel string) (T, bool, error) {
+	var value T
+	if err := io.ReadJSONUnlocked(rel, &value); err != nil {
+		if os.IsNotExist(err) {
+			return value, false, nil
+		}
+		return value, false, err
+	}
+	return value, true, nil
+}
+
 func (io *IO) WriteJSON(rel string, v any) error {
 	io.mu.Lock()
 	defer io.mu.Unlock()
@@ -104,12 +129,6 @@ func (io *IO) WriteMarkdown(rel string, content string) error {
 // 下次写同一 scope 即自愈）。故意不为此加两文件原子提交——那是过度设计。
 func (io *IO) WriteMarkdownUnlocked(rel string, content string) error {
 	return io.WriteFileUnlocked(rel, []byte(content))
-}
-
-func (io *IO) AppendLine(rel string, data []byte) error {
-	io.mu.Lock()
-	defer io.mu.Unlock()
-	return io.AppendLineUnlocked(rel, data)
 }
 
 func (io *IO) AppendLineUnlocked(rel string, data []byte) error {

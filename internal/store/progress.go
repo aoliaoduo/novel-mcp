@@ -3,7 +3,6 @@ package store
 
 import (
 	"fmt"
-	"os"
 	"slices"
 
 	"novel-mcp/internal/domain"
@@ -23,11 +22,8 @@ func (s *ProgressStore) Load() (*domain.Progress, error) {
 }
 
 func (s *ProgressStore) loadUnlocked() (*domain.Progress, error) {
-	var p domain.Progress
-	if err := s.io.ReadJSONUnlocked("meta/progress.json", &p); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	p, ok, err := readJSONIfExistsUnlocked[domain.Progress](s.io, "meta/progress.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &p, nil

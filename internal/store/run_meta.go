@@ -2,7 +2,6 @@
 package store
 
 import (
-	"os"
 	"time"
 
 	"novel-mcp/internal/domain"
@@ -26,11 +25,8 @@ func (s *RunMetaStore) Load() (*domain.RunMeta, error) {
 }
 
 func (s *RunMetaStore) loadUnlocked() (*domain.RunMeta, error) {
-	var meta domain.RunMeta
-	if err := s.io.ReadJSONUnlocked("meta/run.json", &meta); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	meta, ok, err := readJSONIfExistsUnlocked[domain.RunMeta](s.io, "meta/run.json")
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &meta, nil

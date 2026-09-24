@@ -378,186 +378,19 @@ func run(argv []string) error {
 		fmt.Println("  停止：按 Ctrl+C，或直接关闭本窗口")
 		return serveLoop(srv, ln, nil)
 	case "local":
-		c.Host = "127.0.0.1"
-		c.PublicURL = ""
-		c.AllowOrigins = nil
-		c.RequireBearer = ptr(true)
-		c.StartupMode = string(tui.StartupLocal)
-		if public.ProbeRunning(c.Port) {
-			if info, err := public.LoadConnection(c.Data); err == nil {
-				public.PrintRunningCard(os.Stdout, info)
-				pauseIfInteractive()
-				return nil
-			}
-		}
-		obs := server.NewObserver()
-		var srv *http.Server
-		var ln net.Listener
-		var creds server.Credentials
-		interactive := tui.Wanted(*noTUI, os.Stdout, os.Stdin)
-		if interactive {
-			startErr := tui.RunStartupTask(tui.StartupTaskOptions{
-				Title: "启动 · 仅本机",
-				Steps: []tui.StartupStep{
-					{ID: "config", Label: "连接配置"},
-					{ID: "service", Label: "MCP 服务"},
-				},
-				Task: func(report func(tui.StartupStep)) error {
-					report(tui.StartupStep{ID: "config", Label: "连接配置", State: tui.StartupRunning, Detail: "保存启动模式"})
-					if err := saveStartupConfig(c); err != nil {
-						return err
-					}
-					report(tui.StartupStep{ID: "config", Label: "连接配置", State: tui.StartupOK, Detail: filepath.Join(c.Data, "config.json")})
-					report(tui.StartupStep{ID: "service", Label: "MCP 服务", State: tui.StartupRunning, Detail: "监听 127.0.0.1"})
-					var err error
-					srv, ln, _, creds, err = prepareServe(c, obs)
-					if err != nil {
-						return err
-					}
-					report(tui.StartupStep{ID: "service", Label: "MCP 服务", State: tui.StartupOK, Detail: fmt.Sprintf("127.0.0.1:%d", c.Port)})
-					return nil
-				},
-			})
-			if startErr != nil {
-				return &displayedError{err: startErr}
-			}
-		} else {
-			if err := saveStartupConfig(c); err != nil {
-				return err
-			}
-			var err error
-			srv, ln, _, creds, err = prepareServe(c, obs)
-			if err != nil {
-				return err
-			}
-		}
-		origin := originOf(c)
-		if interactive {
-			return runServiceTUI(srv, ln, c.Data, tui.Connection{
-				Version: public.Version, AccessURL: origin + "/mcp/" + creds.Route,
-				Bearer: creds.Bearer, HealthURL: origin + "/healthz",
-				Note: "仅本机可访问 · 不使用 Tailscale · 不暴露公网", DataDir: c.Data,
-			}, obs, nil)
-		}
-		fmt.Printf("novel-mcp 本机模式已就绪\n  接入地址 %s/mcp/%s\n  Bearer %s\n  停止：按 Ctrl+C\n", origin, creds.Route, creds.Bearer)
-		return serveLoop(srv, ln, nil)
+		return runLocalCommand(c, *noTUI)
 	case "public":
-		// 双击第二次：已有实例在跑就直接展示连接卡，不走启动流程。
-		if !*dryRun && public.ProbeRunning(c.Port) {
-			if info, err := public.LoadConnection(c.Data); err == nil && info.PublicURL != "" {
-				public.PrintRunningCard(os.Stdout, info)
-				pauseIfInteractive()
-				return nil
-			}
-		}
-		allow := c.AllowOrigins
-		if len(allow) == 0 {
-			allow = public.DefaultAllowOrigins
-		}
-		interactive := tui.Wanted(*noTUI, os.Stdout, os.Stdin) && !*dryRun
-		if interactive {
-			var ready *public.Ready
-			var srv *http.Server
-			var ln net.Listener
-			var creds server.Credentials
-			obs := server.NewObserver()
-			tunnelLabel := "Tailscale Funnel"
-			if *tailnetOnly {
-				tunnelLabel = "Tailnet Serve"
-			}
-			startErr := tui.RunStartupTask(tui.StartupTaskOptions{
-				Title: "启动 · 网页 / 云端客户端",
-				Steps: []tui.StartupStep{
-					{ID: "tailnet", Label: "Tailscale"},
-					{ID: "config", Label: "连接配置"},
-					{ID: "tunnel", Label: tunnelLabel},
-					{ID: "dns", Label: "公网 DNS"},
-					{ID: "service", Label: "MCP 服务"},
-				},
-				Task: func(report func(tui.StartupStep)) error {
-					progress := func(id, label, state, detail string) {
-						report(tui.StartupStep{ID: id, Label: label, State: tui.StartupStepState(state), Detail: detail})
-					}
-					var err error
-					ready, err = public.Preflight(public.Options{
-						Port: c.Port, ServePort: *servePort, DataDir: c.Data,
-						RequireBearer: *c.RequireBearer, Funnel: !*tailnetOnly,
-						AllowTokenOnly: *tokenOnly, AllowOrigins: allow,
-						Smoke: *smoke, DryRun: false, Out: io.Discard, Progress: progress,
-					})
-					if err != nil {
-						return err
-					}
-					pc := c
-					pc.PublicURL = ready.PublicURL
-					pc.AllowOrigins = ready.AllowOrigins
-					pc.StartupMode = string(tui.StartupPublic)
-					if err := pc.validate(*allowOpen); err != nil {
-						return err
-					}
-					report(tui.StartupStep{ID: "service", Label: "MCP 服务", State: tui.StartupRunning, Detail: "启动本机服务"})
-					srv, ln, _, creds, err = prepareServe(pc, obs)
-					if err != nil {
-						return err
-					}
-					report(tui.StartupStep{ID: "service", Label: "MCP 服务", State: tui.StartupOK, Detail: fmt.Sprintf("127.0.0.1:%d", c.Port)})
-					return nil
-				},
-			})
-			if startErr != nil {
-				return &displayedError{err: startErr}
-			}
-			return runPublicTUI(srv, ln, c.Data, ready, creds, obs, *smoke)
-		}
-
-		ready, err := public.Preflight(public.Options{
-			Port: c.Port, ServePort: *servePort, DataDir: c.Data,
-			RequireBearer: *c.RequireBearer, Funnel: !*tailnetOnly,
-			AllowTokenOnly: *tokenOnly, AllowOrigins: allow,
-			Smoke: *smoke, DryRun: *dryRun,
+		return runPublicCommand(c, publicCommandOptions{
+			allowOpen: *allowOpen, tailnetOnly: *tailnetOnly, servePort: *servePort,
+			tokenOnly: *tokenOnly, smoke: *smoke, dryRun: *dryRun, noTUI: *noTUI,
 		})
-		if err != nil {
-			return err
-		}
-		if *dryRun {
-			fmt.Println("dry-run 结束：上面是只读侦察的结果，没改任何东西。")
-			return nil
-		}
-		pc := c
-		pc.PublicURL = ready.PublicURL
-		pc.AllowOrigins = ready.AllowOrigins
-		pc.StartupMode = string(tui.StartupPublic)
-		if err := pc.validate(*allowOpen); err != nil {
-			return err
-		}
-		obs := server.NewObserver()
-		srv, ln, _, creds, err := prepareServe(pc, obs)
-		if err != nil {
-			return err
-		}
-		public.PrintAccess(os.Stdout, ready, creds.Route, creds.Bearer)
-		var after func()
-		if *smoke {
-			after = func() {
-				fmt.Println("[5] 轻量冒烟（经公网 URL，只读）...")
-				if err := public.LightSmoke(os.Stdout, ready.PublicURL, creds.Route, creds.Bearer, 60*time.Second); err != nil {
-					fmt.Printf("  smoke 未通过（%v），但服务继续跑。排查（按顺序）：\n", err)
-					for _, h := range public.SmokeFailureHints() {
-						fmt.Println("  " + h)
-					}
-				} else {
-					fmt.Println("  smoke 通过")
-				}
-			}
-		}
-		return serveLoop(srv, ln, after)
 	default:
 		return &usageError{err: fmt.Errorf("未知命令 %q", cmd)}
 	}
 }
 
-// prepareServe 完成 serve 的全部准备：数据目录、凭据、projects、监听、handler。
-// serve 与 public 共用，行为一致。obs 传 nil 表示不观测（plain serve 用法）。
+// prepareServe 完成 serve 的全部准备：数据目录、调用日志、凭据、projects、监听、handler。
+// serve/local/public 共用；obs 传 nil 时也会创建基础 Observer，以保证持久调用日志始终开启。
 func prepareServe(c Config, obs *server.Observer) (srv *http.Server, ln net.Listener, addr string, creds server.Credentials, err error) {
 	credsFile := filepath.Join(c.Data, "credentials.json")
 	if err = os.MkdirAll(c.Data, 0o700); err != nil {

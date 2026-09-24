@@ -3,7 +3,6 @@ package store
 
 import (
 	"fmt"
-	"os"
 	"reflect"
 	"slices"
 	"time"
@@ -22,11 +21,8 @@ func ChapterRecordPath(chapter int) string {
 }
 
 func (s *ChapterRecordStore) Load(chapter int) (*domain.ChapterRecord, error) {
-	var record domain.ChapterRecord
-	if err := s.io.ReadJSON(ChapterRecordPath(chapter), &record); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+	record, ok, err := readJSONIfExists[domain.ChapterRecord](s.io, ChapterRecordPath(chapter))
+	if err != nil || !ok {
 		return nil, err
 	}
 	if err := validateChapterRecord(record); err != nil {

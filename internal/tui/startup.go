@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -185,16 +184,4 @@ func (m startupTaskModel) View() string {
 		lines = append(lines, "", stDim.Render("  正在准备 MCP 服务…"))
 	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(joinLines(lines))
-}
-
-func startupStep(id, label string, state StartupStepState, detail string) StartupStep {
-	return StartupStep{ID: id, Label: label, State: state, Detail: detail}
-}
-
-func startupSteps(labels ...string) []StartupStep {
-	steps := make([]StartupStep, 0, len(labels))
-	for i, label := range labels {
-		steps = append(steps, startupStep(fmt.Sprintf("step-%d", i), label, StartupPending, ""))
-	}
-	return steps
 }

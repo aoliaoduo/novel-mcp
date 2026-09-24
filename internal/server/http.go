@@ -101,7 +101,6 @@ type HTTPOptions struct {
 	Hosts         []string
 	Origins       []string
 	RequireBearer bool
-	Projects      *Projects
 	Observer      *Observer
 }
 
