@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/mattn/go-runewidth v0.0.30
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/voocel/agentcore v1.8.3
+	github.com/voocel/agentcore v1.8.4
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0
 )
